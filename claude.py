@@ -73,10 +73,12 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
 Articles this week (sorted by relevance):
 {articles_text}
 
-Write the digest body with these sections:
-1. "Week in Brief" — 2 sentences framing the macro/market narrative across all the articles
-2. "Must Read This Week" — the top 2 articles (marked [1] and [2]) with a fuller 4-5 sentence treatment each, explaining why it matters
-3. "Also Worth Reading" — the remaining articles, 2 sentences each, grouped under "Macro" and "Equities" subheadings where relevant
+Adapt the format to however many articles are available this week:
+- If 1 article: write a thorough single-article commentary, 8-10 sentences, explaining the key insight and why it matters
+- If 2-3 articles: write a "Must Read" section covering all of them with 4-5 sentences each, skip the "Also Worth Reading" section
+- If 4+ articles: write all three sections — "Week in Brief" (2 sentences), "Must Read This Week" (top 2, 4-5 sentences each), "Also Worth Reading" (rest, 2 sentences each grouped by macro/equities)
+
+Always write something useful — never refuse or ask for more articles.
 
 Tone: smart analyst friend, not a robot. No bullet points — prose only. Total reading time should be 10-12 minutes."""
         }]
