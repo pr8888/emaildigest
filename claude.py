@@ -33,7 +33,13 @@ Score 0.8-1.0 only for genuinely important macro shifts or high-conviction equit
         }]
     )
 
-    result = json.loads(response.content[0].text)
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if Claude wrapped the JSON
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    result = json.loads(raw.strip())
     return result["summary"], result["tags"], result["must_read_score"]
 
 
