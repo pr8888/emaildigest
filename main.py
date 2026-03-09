@@ -9,7 +9,7 @@ import os
 
 load_dotenv()
 
-from database import init_db, save_article, get_weekly_articles, save_digest, save_feedback, get_feedback_history
+from database import init_db, save_article, get_weekly_articles, save_digest, save_feedback, get_feedback_history, get_article_count
 from claude import summarize_article, compose_digest
 from email_utils import parse_inbound_email, send_digest_email
 
@@ -119,6 +119,7 @@ async def admin_page():
     </div>
 
     <div id="panel" style="display:none">
+      <div id="count" style="background:#f0f3fa;border-radius:8px;padding:16px;margin-bottom:16px;font-size:14px;color:#333">Loading...</div>
       <button onclick="sendDigest()" style="width:100%;padding:14px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
         Send Digest Now
       </button>
@@ -128,10 +129,13 @@ async def admin_page():
 
   <script>
     const CORRECT = "{password}";
-    function unlock() {{
+    async function unlock() {{
       if (document.getElementById("pw").value === CORRECT) {{
         document.getElementById("auth").style.display = "none";
         document.getElementById("panel").style.display = "block";
+        const res = await fetch("/article-count");
+        const data = await res.json();
+        document.getElementById("count").innerHTML = `<strong>${{data.this_week}}</strong> articles queued for this Saturday &bull; <strong>${{data.total}}</strong> total all time`;
       }} else {{
         alert("Wrong password");
       }}
@@ -146,6 +150,12 @@ async def admin_page():
     }}
   </script>
 </body></html>""")
+
+
+@app.get("/article-count")
+async def article_count():
+    total, this_week = get_article_count()
+    return {"total": total, "this_week": this_week}
 
 
 @app.get("/health")

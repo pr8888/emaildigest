@@ -80,6 +80,14 @@ def save_feedback(digest_id, type, value):
         session.commit()
 
 
+def get_article_count():
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    with SessionLocal() as session:
+        total = session.query(Article).count()
+        this_week = session.query(Article).filter(Article.received_at >= week_ago).count()
+        return total, this_week
+
+
 def get_feedback_history(weeks=8):
     cutoff = datetime.now(timezone.utc) - timedelta(weeks=weeks)
     with SessionLocal() as session:
