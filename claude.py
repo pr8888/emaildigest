@@ -1,9 +1,19 @@
 import anthropic
 import json
 import os
+import re
 from collections import Counter
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+
+def _extract_sender_name(sender: str) -> str:
+    """Turn 'Citrini Research <email@example.com>' into 'Citrini Research'."""
+    match = re.match(r'^"?([^"<]+)"?\s*<', sender or "")
+    if match:
+        return match.group(1).strip()
+    local = (sender or "").split("@")[0]
+    return local.replace(".", " ").replace("_", " ").title() or "Unknown"
 
 
 def summarize_article(text: str, subject: str) -> tuple:
@@ -46,8 +56,10 @@ Score 0.8-1.0 only for genuinely important macro shifts or high-conviction equit
 def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> tuple:
     """Returns (html, plain_text) for the weekly digest email."""
     sorted_articles = sorted(articles, key=lambda a: a.must_read_score, reverse=True)
-    must_reads = sorted_articles[:2]
-    rest = sorted_articles[2:]
+    total_count = len(sorted_articles)
+
+    # Cap at 30 articles sent to Claude to keep input manageable
+    top_articles = sorted_articles[:30]
 
     # Build feedback context for Claude
     feedback_note = ""
@@ -58,25 +70,32 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
             length_map = {"short": "longer", "good": "the same length", "long": "shorter"}
             feedback_note = f"Based on past feedback, write the digest {length_map.get(top, 'the same length')} than usual."
 
-    # Format articles for Claude
+    # Format articles for Claude — include author/source
     articles_text = ""
-    for i, a in enumerate(sorted_articles):
-        articles_text += f"\n[{i+1}] Subject: {a.subject}\nSummary: {a.summary}\nScore: {a.must_read_score:.2f}\nTags: {', '.join(a.tags or [])}\n"
+    for i, a in enumerate(top_articles):
+        source = _extract_sender_name(a.sender)
+        articles_text += f"\n[{i+1}] Source: {source}\nSubject: {a.subject}\nSummary: {a.summary}\nScore: {a.must_read_score:.2f}\nTags: {', '.join(a.tags or [])}\n"
+
+    volume_note = f"There are {total_count} articles this week" + (f" (showing top 30 by relevance score)" if total_count > 30 else "") + "."
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[{
             "role": "user",
             "content": f"""Write a weekly investing digest for Pratyush Rastogi, a finance professional in Singapore focused on equities and macro. {feedback_note}
 
+{volume_note}
+
 Articles this week (sorted by relevance):
 {articles_text}
 
-Adapt the format to however many articles are available this week:
+Adapt the format to however many articles are available:
 - If 1 article: write a thorough single-article commentary, 8-10 sentences, explaining the key insight and why it matters
 - If 2-3 articles: write a "Must Read" section covering all of them with 4-5 sentences each, skip the "Also Worth Reading" section
 - If 4+ articles: write all three sections — "Week in Brief" (2 sentences), "Must Read This Week" (top 2, 4-5 sentences each), "Also Worth Reading" (rest, 2 sentences each grouped by macro/equities)
+
+Important: whenever you mention an article, include the source/author name in parentheses — e.g. "The Scoreboard and the Supercycle (Citrini Research)". Use the Source field for each article.
 
 Always write something useful — never refuse or ask for more articles.
 
@@ -85,16 +104,15 @@ Tone: smart analyst friend, not a robot. No bullet points — prose only. Total 
     )
 
     digest_body = response.content[0].text
-    must_read_titles = " & ".join(f'"{a.subject[:45]}..."' for a in must_reads)
     base = f"{app_url}/feedback?digest_id={digest_id}"
 
-    html = _build_html(digest_body, base, must_read_titles)
+    html = _build_html(digest_body, base)
     plain = digest_body + f"\n\n---\nFeedback — Length: {base}&type=length&value=short (Too Short) | {base}&type=length&value=good (Just Right) | {base}&type=length&value=long (Too Long)"
 
     return html, plain
 
 
-def _build_html(body: str, feedback_base: str, must_read_titles: str) -> str:
+def _build_html(body: str, feedback_base: str) -> str:
     paragraphs = ""
     for line in body.split("\n"):
         line = line.strip()
@@ -137,8 +155,7 @@ def _build_html(body: str, feedback_base: str, must_read_titles: str) -> str:
         <a href="{base}&type=length&value=long" style="display:inline-block;padding:8px 18px;margin:0 4px;background:#fff;border:1px solid #d0d9f0;border-radius:20px;color:#3a5bd9;font-size:13px;text-decoration:none;font-family:sans-serif">Too Long</a>
       </div>
 
-      <p style="font-size:13px;color:#333;margin:0 0 6px;text-align:center;font-family:sans-serif"><strong>Rate this week's must reads:</strong></p>
-      <p style="font-size:11px;color:#999;margin:0 0 12px;text-align:center;font-family:sans-serif">{must_read_titles}</p>
+      <p style="font-size:13px;color:#333;margin:0 0 12px;text-align:center;font-family:sans-serif"><strong>Rate this week's must reads:</strong></p>
       <div style="text-align:center">{stars}</div>
     </div>
 
