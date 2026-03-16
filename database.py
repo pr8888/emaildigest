@@ -63,10 +63,18 @@ def save_article(subject, sender, raw_content, summary, tags, must_read_score, i
 
 
 def get_weekly_articles():
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     with SessionLocal() as session:
-        articles = session.query(Article).filter(Article.received_at >= week_ago).all()
-        # Detach from session so they can be used outside
+        # Get all article IDs already sent in any previous digest
+        sent_ids = set()
+        for digest in session.query(Digest).all():
+            if digest.article_ids:
+                sent_ids.update(digest.article_ids)
+
+        # Return all articles not yet sent
+        query = session.query(Article)
+        if sent_ids:
+            query = query.filter(~Article.id.in_(sent_ids))
+        articles = query.all()
         session.expunge_all()
         return articles
 
@@ -87,11 +95,19 @@ def save_feedback(digest_id, type, value):
 
 
 def get_article_count():
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     with SessionLocal() as session:
         total = session.query(Article).count()
-        this_week = session.query(Article).filter(Article.received_at >= week_ago).count()
-        return total, this_week
+
+        # Count articles not yet sent in any digest
+        sent_ids = set()
+        for digest in session.query(Digest).all():
+            if digest.article_ids:
+                sent_ids.update(digest.article_ids)
+        if sent_ids:
+            queued = session.query(Article).filter(~Article.id.in_(sent_ids)).count()
+        else:
+            queued = total
+        return total, queued
 
 
 def get_feedback_history(weeks=8):
