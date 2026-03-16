@@ -43,8 +43,22 @@ async def inbound_email(request: Request, background_tasks: BackgroundTasks):
     return {"status": "ok"}
 
 
+def _is_priority_sender(sender: str) -> bool:
+    """Check if sender matches any name in the PRIORITY_SENDERS env var."""
+    priority_list = os.environ.get("PRIORITY_SENDERS", "")
+    if not priority_list:
+        return False
+    sender_lower = sender.lower()
+    return any(p.strip().lower() in sender_lower for p in priority_list.split(",") if p.strip())
+
+
 def process_article(article: dict):
     summary, tags, must_read_score, is_paywalled = summarize_article(article["text"], article["subject"])
+
+    # Priority senders always score at least 0.85
+    if _is_priority_sender(article["sender"]):
+        must_read_score = max(must_read_score, 0.85)
+
     save_article(
         subject=article["subject"],
         sender=article["sender"],

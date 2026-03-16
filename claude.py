@@ -25,7 +25,7 @@ def summarize_article(text: str, subject: str) -> tuple:
         max_tokens=400,
         messages=[{
             "role": "user",
-            "content": f"""Summarize this investing article for a busy finance professional focused on equities and macro.
+            "content": f"""Summarize this investing article for a finance professional. The user personally selected and forwarded this email, so treat it as worth summarising regardless of topic — equities (any sector including gaming, commodities, healthcare, real estate etc.), macro, fixed income, private markets, all count.
 
 Subject: {subject}
 
