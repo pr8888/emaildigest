@@ -44,7 +44,7 @@ async def inbound_email(request: Request, background_tasks: BackgroundTasks):
 
 
 def process_article(article: dict):
-    summary, tags, must_read_score = summarize_article(article["text"], article["subject"])
+    summary, tags, must_read_score, is_paywalled = summarize_article(article["text"], article["subject"])
     save_article(
         subject=article["subject"],
         sender=article["sender"],
@@ -52,6 +52,7 @@ def process_article(article: dict):
         summary=summary,
         tags=tags,
         must_read_score=must_read_score,
+        is_paywalled=is_paywalled,
     )
 
 

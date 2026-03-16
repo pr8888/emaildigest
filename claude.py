@@ -34,15 +34,18 @@ Content:
 
 Respond with JSON only:
 {{
-  "summary": "2-3 sentences capturing the key insight and actionable takeaway",
+  "summary": "2-3 sentences capturing the key insight and actionable takeaway from whatever content is available",
   "tags": ["macro" and/or "equities" and/or "other"],
-  "must_read_score": 0.0 to 1.0
+  "must_read_score": 0.0 to 1.0,
+  "is_paywalled": true or false
 }}
 
-Scoring criteria:
-- 0.0–0.3 (low): just a few lines before a paywall, or a sales pitch trying to get the reader to pay for a newsletter/blog — minimal actual content
-- 0.4–0.6 (mid): decent content but nothing earth-shattering, OR a few paragraphs of real content before hitting a paywall
-- 0.7–1.0 (high): full article with substantive content and genuinely fascinating or actionable insight"""
+Scoring — rate the relevance and insight of the content that IS present, regardless of length:
+- 0.7–1.0: genuinely fascinating or actionable — novel framework, high-conviction call, data that changes how you think about a market
+- 0.4–0.6: useful and on-topic but not exceptional — solid context, decent analysis, nothing you haven't broadly heard before
+- 0.0–0.3: a sales pitch, pure promotional content, or so generic it adds no value
+
+is_paywalled — set true if the content appears truncated: hits a paywall mid-article, ends with "subscribe to read more", or is clearly just a teaser with minimal substance. Set false if the full article is present."""
         }]
     )
 
@@ -53,12 +56,16 @@ Scoring criteria:
         if raw.startswith("json"):
             raw = raw[4:]
     result = json.loads(raw.strip())
-    return result["summary"], result["tags"], result["must_read_score"]
+    return result["summary"], result["tags"], result["must_read_score"], result.get("is_paywalled", False)
 
 
 def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> tuple:
     """Returns (html, plain_text) for the weekly digest email."""
-    sorted_articles = sorted(articles, key=lambda a: a.must_read_score, reverse=True)
+    # Full articles first (sorted by score), paywalled articles after (sorted by score)
+    sorted_articles = sorted(
+        articles,
+        key=lambda a: (bool(a.is_paywalled), -a.must_read_score)
+    )
     total_count = len(sorted_articles)
 
     # Cap at 30 articles sent to Claude to keep input manageable

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, JSON, Boolean, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime, timezone, timedelta
 import os
@@ -18,6 +18,7 @@ class Article(Base):
     summary = Column(Text)
     tags = Column(JSON)
     must_read_score = Column(Float, default=0.0)
+    is_paywalled = Column(Boolean, default=False)
 
 
 class Digest(Base):
@@ -39,9 +40,13 @@ class Feedback(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    # Add is_paywalled column to existing tables if it doesn't exist yet
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_paywalled BOOLEAN DEFAULT FALSE"))
+        conn.commit()
 
 
-def save_article(subject, sender, raw_content, summary, tags, must_read_score):
+def save_article(subject, sender, raw_content, summary, tags, must_read_score, is_paywalled=False):
     with SessionLocal() as session:
         article = Article(
             subject=subject,
@@ -50,6 +55,7 @@ def save_article(subject, sender, raw_content, summary, tags, must_read_score):
             summary=summary,
             tags=tags,
             must_read_score=must_read_score,
+            is_paywalled=is_paywalled,
         )
         session.add(article)
         session.commit()
