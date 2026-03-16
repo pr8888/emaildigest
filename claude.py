@@ -39,7 +39,10 @@ Respond with JSON only:
   "must_read_score": 0.0 to 1.0
 }}
 
-Score 0.8-1.0 only for genuinely important macro shifts or high-conviction equity calls. Score 0.3-0.5 for useful but not urgent reads."""
+Scoring criteria:
+- 0.0–0.3 (low): just a few lines before a paywall, or a sales pitch trying to get the reader to pay for a newsletter/blog — minimal actual content
+- 0.4–0.6 (mid): decent content but nothing earth-shattering, OR a few paragraphs of real content before hitting a paywall
+- 0.7–1.0 (high): full article with substantive content and genuinely fascinating or actionable insight"""
         }]
     )
 
