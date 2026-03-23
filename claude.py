@@ -68,8 +68,8 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
     )
     total_count = len(sorted_articles)
 
-    # Cap at 30 articles sent to Claude to keep input manageable
-    top_articles = sorted_articles[:30]
+    # Filter out junk (score below 0.3) — everything else gets included
+    top_articles = [a for a in sorted_articles if a.must_read_score >= 0.3]
 
     # Build feedback context for Claude
     feedback_note = ""
@@ -86,14 +86,16 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
         source = _extract_sender_name(a.sender)
         articles_text += f"\n[{i+1}] Source: {source}\nSubject: {a.subject}\nSummary: {a.summary}\nScore: {a.must_read_score:.2f}\nTags: {', '.join(a.tags or [])}\n"
 
-    volume_note = f"There are {total_count} articles this week" + (f" (showing top 30 by relevance score)" if total_count > 30 else "") + "."
+    volume_note = f"There are {len(top_articles)} articles this week (filtered from {total_count} total, excluding low-quality)."
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4000,
         messages=[{
             "role": "user",
-            "content": f"""Write a weekly investing digest for Pratyush Rastogi, a finance professional in Singapore focused on equities and macro. {feedback_note}
+            "content": f"""Write a weekly investing digest for Pratyush Rastogi, a bottom-up fundamental equity investor based in Singapore. {feedback_note}
+
+Pratyush's priorities: he is primarily a stock-picker — company-specific analysis, earnings, sector dynamics and individual equity ideas are his main interest. Macro (rates, FX, geopolitics) is useful context but should always play a supporting role, never the headline. Lead with equities, end with macro.
 
 {volume_note}
 
@@ -103,7 +105,11 @@ Articles this week (sorted by relevance):
 Adapt the format to however many articles are available:
 - If 1 article: write a thorough single-article commentary, 8-10 sentences, explaining the key insight and why it matters
 - If 2-3 articles: write a "Must Read" section covering all of them with 4-5 sentences each, skip the "Also Worth Reading" section
-- If 4+ articles: write all three sections — "Week in Brief" (2 sentences), "Must Read This Week" (top 2, 4-5 sentences each), "Also Worth Reading" (rest, 2 sentences each grouped by macro/equities)
+- If 4+ articles: write all four sections in this order:
+    1. "Week in Brief" — 2 sentences capturing the overall theme
+    2. "Must Read This Week" — top 2 articles, 4-5 sentences each
+    3. "Equities" — stock-specific and sector pieces, 2 sentences each
+    4. "Macro" — macro/rates/geopolitical pieces, 2 sentences each (keep this section brief)
 
 Important: whenever you mention an article, include the source/author name in parentheses — e.g. "The Scoreboard and the Supercycle (Citrini Research)". Use the Source field for each article.
 
