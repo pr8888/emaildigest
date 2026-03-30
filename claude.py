@@ -34,7 +34,7 @@ Content:
 
 Respond with JSON only:
 {{
-  "summary": "2-3 sentences capturing the key insight and actionable takeaway from whatever content is available",
+  "summary": "2-3 short, plain sentences. First: what is this article actually saying? Second: why does it matter and what should I do with this information? The so what must be clear. No jargon, no complex sentence structures — write like a smart friend explaining it, not an analyst report.",
   "tags": ["macro" and/or "equities" and/or "other"],
   "must_read_score": 0.0 to 1.0,
   "is_paywalled": true or false
