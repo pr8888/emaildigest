@@ -59,7 +59,7 @@ is_paywalled — set true if the content appears truncated: hits a paywall mid-a
     return result["summary"], result["tags"], result["must_read_score"], result.get("is_paywalled", False)
 
 
-def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> tuple:
+def compose_digest(articles, feedback_history, digest_id: int, app_url: str, is_priority_sender=None) -> tuple:
     """Returns (html, plain_text) for the weekly digest email."""
     # Full articles first (sorted by score), paywalled articles after (sorted by score)
     sorted_articles = sorted(
@@ -80,11 +80,20 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
             length_map = {"short": "longer", "good": "the same length", "long": "shorter"}
             feedback_note = f"Based on past feedback, write the digest {length_map.get(top, 'the same length')} than usual."
 
-    # Format articles for Claude — include author/source
+    # Format articles for Claude — flag priority senders
     articles_text = ""
+    priority_subjects = []
     for i, a in enumerate(top_articles):
         source = _extract_sender_name(a.sender)
-        articles_text += f"\n[{i+1}] Source: {source}\nSubject: {a.subject}\nSummary: {a.summary}\nScore: {a.must_read_score:.2f}\nTags: {', '.join(a.tags or [])}\n"
+        is_priority = is_priority_sender and is_priority_sender(a.sender)
+        priority_flag = " [PRIORITY — MUST INCLUDE]" if is_priority else ""
+        articles_text += f"\n[{i+1}] Source: {source}{priority_flag}\nSubject: {a.subject}\nSummary: {a.summary}\nScore: {a.must_read_score:.2f}\nTags: {', '.join(a.tags or [])}\n"
+        if is_priority:
+            priority_subjects.append(f'"{a.subject}" ({source})')
+
+    priority_note = ""
+    if priority_subjects:
+        priority_note = f"\nMANDATORY: The following articles are from priority sources and must be covered in the digest — do not skip them under any circumstances: {', '.join(priority_subjects)}.\n"
 
     volume_note = f"There are {len(top_articles)} articles this week (filtered from {total_count} total, excluding low-quality)."
 
@@ -98,7 +107,7 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str) -> 
 Pratyush's priorities: he is primarily a stock-picker — company-specific analysis, earnings, sector dynamics and individual equity ideas are his main interest. Macro (rates, FX, geopolitics) is useful context but should always play a supporting role, never the headline. Lead with equities, end with macro.
 
 {volume_note}
-
+{priority_note}
 Articles this week (sorted by relevance):
 {articles_text}
 
@@ -107,7 +116,7 @@ Adapt the format to however many articles are available:
 - If 2-3 articles: write a "Must Read" section covering all of them with 4-5 sentences each, skip the "Also Worth Reading" section
 - If 4+ articles: write all four sections in this order:
     1. "Week in Brief" — 2 sentences capturing the overall theme
-    2. "Must Read This Week" — top 2 articles, 4-5 sentences each
+    2. "Must Read This Week" — top 2 articles, 4-5 sentences each (priority articles must appear here)
     3. "Equities" — stock-specific and sector pieces, 2 sentences each
     4. "Macro" — macro/rates/geopolitical pieces, 2 sentences each (keep this section brief)
 

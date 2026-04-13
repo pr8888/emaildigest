@@ -87,7 +87,7 @@ def run_weekly_digest():
     digest_id = save_digest(article_ids=article_ids, week_start=week_start)
 
     feedback_history = get_feedback_history(weeks=8)
-    html, plain = compose_digest(articles, feedback_history, digest_id=digest_id, app_url=APP_URL)
+    html, plain = compose_digest(articles, feedback_history, digest_id=digest_id, app_url=APP_URL, is_priority_sender=_is_priority_sender)
 
     from datetime import date
     week_str = date.today().strftime("%b %d, %Y")
