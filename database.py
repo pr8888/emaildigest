@@ -94,6 +94,30 @@ def save_feedback(digest_id, type, value):
         session.commit()
 
 
+def get_queued_articles():
+    with SessionLocal() as session:
+        sent_ids = set()
+        for digest in session.query(Digest).all():
+            if digest.article_ids:
+                sent_ids.update(digest.article_ids)
+        query = session.query(Article)
+        if sent_ids:
+            query = query.filter(~Article.id.in_(sent_ids))
+        articles = query.order_by(Article.must_read_score.desc()).all()
+        result = []
+        for a in articles:
+            result.append({
+                "id": a.id,
+                "subject": a.subject,
+                "sender": a.sender,
+                "must_read_score": a.must_read_score,
+                "is_paywalled": a.is_paywalled,
+                "received_at": a.received_at.isoformat() if a.received_at else None,
+                "tags": a.tags or [],
+            })
+        return result
+
+
 def get_article_count():
     with SessionLocal() as session:
         total = session.query(Article).count()

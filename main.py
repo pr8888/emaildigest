@@ -9,7 +9,7 @@ import os
 
 load_dotenv()
 
-from database import init_db, save_article, get_weekly_articles, save_digest, save_feedback, get_feedback_history, get_article_count
+from database import init_db, save_article, get_weekly_articles, save_digest, save_feedback, get_feedback_history, get_article_count, get_queued_articles
 from claude import summarize_article, compose_digest
 from email_utils import parse_inbound_email, send_digest_email
 
@@ -123,22 +123,29 @@ async def admin_page():
     password = os.environ.get("ADMIN_PASSWORD", "changeme")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Digest Admin</title></head>
-<body style="font-family:sans-serif;background:#f0f3fa;padding:60px 20px;text-align:center">
-  <div style="max-width:420px;margin:0 auto;background:#fff;border-radius:12px;padding:48px;box-shadow:0 2px 12px rgba(0,0,0,0.09)">
-    <h2 style="color:#1a1a2e;margin:0 0 8px">Digest Admin</h2>
-    <p style="color:#888;font-size:13px;margin:0 0 32px">farrer36.com &bull; Weekly Markets Digest</p>
+<body style="font-family:sans-serif;background:#f0f3fa;padding:40px 20px">
+  <div style="max-width:680px;margin:0 auto">
+    <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 2px 12px rgba(0,0,0,0.09);margin-bottom:24px;text-align:center">
+      <h2 style="color:#1a1a2e;margin:0 0 8px">Digest Admin</h2>
+      <p style="color:#888;font-size:13px;margin:0 0 32px">farrer36.com &bull; Weekly Markets Digest</p>
 
-    <div id="auth">
-      <input id="pw" type="password" placeholder="Password" style="width:100%;padding:10px 14px;border:1px solid #d0d9f0;border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
-      <button onclick="unlock()" style="width:100%;padding:11px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Unlock</button>
+      <div id="auth">
+        <input id="pw" type="password" placeholder="Password" style="width:100%;padding:10px 14px;border:1px solid #d0d9f0;border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+        <button onclick="unlock()" style="width:100%;padding:11px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Unlock</button>
+      </div>
+
+      <div id="panel" style="display:none">
+        <div id="count" style="background:#f0f3fa;border-radius:8px;padding:16px;margin-bottom:16px;font-size:14px;color:#333">Loading...</div>
+        <button onclick="sendDigest()" style="width:100%;padding:14px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
+          Send Digest Now
+        </button>
+        <p id="status" style="color:#666;font-size:13px;min-height:20px"></p>
+      </div>
     </div>
 
-    <div id="panel" style="display:none">
-      <div id="count" style="background:#f0f3fa;border-radius:8px;padding:16px;margin-bottom:16px;font-size:14px;color:#333">Loading...</div>
-      <button onclick="sendDigest()" style="width:100%;padding:14px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
-        Send Digest Now
-      </button>
-      <p id="status" style="color:#666;font-size:13px;min-height:20px"></p>
+    <div id="article-list" style="display:none">
+      <h3 style="color:#1a1a2e;font-size:15px;margin:0 0 12px">Articles Queued for Next Digest</h3>
+      <div id="articles"></div>
     </div>
   </div>
 
@@ -148,12 +155,43 @@ async def admin_page():
       if (document.getElementById("pw").value === CORRECT) {{
         document.getElementById("auth").style.display = "none";
         document.getElementById("panel").style.display = "block";
-        const res = await fetch("/article-count");
-        const data = await res.json();
-        document.getElementById("count").innerHTML = `<strong>${{data.this_week}}</strong> articles queued for this Saturday &bull; <strong>${{data.total}}</strong> total all time`;
+        loadCount();
+        loadArticles();
       }} else {{
         alert("Wrong password");
       }}
+    }}
+    async function loadCount() {{
+      const res = await fetch("/article-count");
+      const data = await res.json();
+      document.getElementById("count").innerHTML = `<strong>${{data.this_week}}</strong> articles queued for this Saturday &bull; <strong>${{data.total}}</strong> total all time`;
+    }}
+    async function loadArticles() {{
+      const res = await fetch("/queued-articles");
+      const articles = await res.json();
+      document.getElementById("article-list").style.display = "block";
+      const container = document.getElementById("articles");
+      if (!articles.length) {{
+        container.innerHTML = '<p style="color:#888;font-size:14px">No articles queued yet.</p>';
+        return;
+      }}
+      container.innerHTML = articles.map(a => {{
+        const score = (a.must_read_score * 100).toFixed(0);
+        const scoreColor = a.must_read_score >= 0.7 ? "#2e7d32" : a.must_read_score >= 0.4 ? "#e65100" : "#999";
+        const date = a.received_at ? new Date(a.received_at).toLocaleDateString("en-SG", {{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Singapore"}}) : "";
+        const tags = (a.tags || []).map(t => `<span style="background:#e8f0fe;color:#3a5bd9;padding:2px 8px;border-radius:10px;font-size:11px;margin-right:4px">${{t}}</span>`).join("");
+        const paywalled = a.is_paywalled ? '<span style="background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:11px;margin-right:4px">Paywalled</span>' : "";
+        return `<div style="background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.07);text-align:left">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600;color:#1a1a2e;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{a.subject}}</div>
+              <div style="font-size:12px;color:#888;margin-bottom:6px">${{a.sender}} &bull; ${{date}} SGT</div>
+              <div>${{paywalled}}${{tags}}</div>
+            </div>
+            <div style="font-size:20px;font-weight:700;color:${{scoreColor}};white-space:nowrap">${{score}}<span style="font-size:11px;font-weight:400;color:#aaa">/100</span></div>
+          </div>
+        </div>`;
+      }}).join("");
     }}
     async function sendDigest() {{
       document.getElementById("status").textContent = "Sending...";
@@ -171,6 +209,11 @@ async def admin_page():
 async def article_count():
     total, this_week = get_article_count()
     return {"total": total, "this_week": this_week}
+
+
+@app.get("/queued-articles")
+async def queued_articles():
+    return get_queued_articles()
 
 
 @app.get("/health")
