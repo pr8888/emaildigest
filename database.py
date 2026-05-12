@@ -3,6 +3,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime, timezone, timedelta
 import os
 
+
+
 engine = create_engine(os.environ["DATABASE_URL"])
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
@@ -36,6 +38,47 @@ class Feedback(Base):
     type = Column(String(50))   # "length" or "must_read"
     value = Column(String(50))  # "short"/"good"/"long" or "1"-"5"
     submitted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ScreenerRun(Base):
+    __tablename__ = "screener_runs"
+    id = Column(Integer, primary_key=True)
+    run_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    stock_count = Column(Integer, default=0)
+    cluster_count = Column(Integer, default=0)
+
+
+class ScreenerStock(Base):
+    __tablename__ = "screener_stocks"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, index=True)
+    symbol = Column(String(20))
+    name = Column(String(500))
+    exchange = Column(String(20))
+    country = Column(String(100))
+    sector = Column(String(200))
+    industry = Column(String(200))
+    price = Column(Float)
+    year_low = Column(Float)
+    low_3m = Column(Float)
+    pct_above_52w = Column(Float)
+    pct_above_3m = Column(Float)
+    vol_ratio = Column(Float)
+    vol_flag = Column(String(5))
+    signal = Column(String(20))  # Strong | Recovery | Breakout
+
+
+class ScreenerCluster(Base):
+    __tablename__ = "screener_clusters"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, index=True)
+    sector = Column(String(200))
+    country = Column(String(100))
+    strong = Column(Integer, default=0)
+    recovery = Column(Integer, default=0)
+    breakout = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    delta = Column(Integer, default=0)  # change vs previous run
 
 
 def init_db():
@@ -140,3 +183,104 @@ def get_feedback_history(weeks=8):
         items = session.query(Feedback).filter(Feedback.submitted_at >= cutoff).all()
         session.expunge_all()
         return items
+
+
+# ── Screener CRUD ────────────────────────────────────────────────────────────
+
+def save_screener_run(stock_count, cluster_count):
+    with SessionLocal() as session:
+        run = ScreenerRun(stock_count=stock_count, cluster_count=cluster_count)
+        session.add(run)
+        session.commit()
+        return run.id
+
+
+def save_screener_stocks(run_id, stocks):
+    with SessionLocal() as session:
+        for s in stocks:
+            session.add(ScreenerStock(
+                run_id=run_id,
+                symbol=s["symbol"],
+                name=s["name"],
+                exchange=s["exchange"],
+                country=s["country"],
+                sector=s["sector"],
+                industry=s["industry"],
+                price=s["price"],
+                year_low=s["year_low"],
+                low_3m=s["low_3m"],
+                pct_above_52w=s["pct_above_52w"],
+                pct_above_3m=s["pct_above_3m"],
+                vol_ratio=s["vol_ratio"],
+                vol_flag=s["vol_flag"],
+                signal=s["signal"],
+            ))
+        session.commit()
+
+
+def _get_prev_run_id():
+    """Return the second-most-recent screener run id, or None if this is the first."""
+    with SessionLocal() as session:
+        runs = session.query(ScreenerRun).order_by(ScreenerRun.run_at.desc()).limit(2).all()
+        return runs[1].id if len(runs) >= 2 else None
+
+
+def save_screener_clusters(run_id, clusters):
+    """Save clusters, computing delta against the previous run."""
+    prev_run_id = _get_prev_run_id()
+
+    # Build lookup of previous totals keyed by (sector, country)
+    prev_totals = {}
+    if prev_run_id:
+        with SessionLocal() as session:
+            prev = session.query(ScreenerCluster).filter(ScreenerCluster.run_id == prev_run_id).all()
+            for c in prev:
+                prev_totals[(c.sector, c.country)] = c.total
+
+    with SessionLocal() as session:
+        for c in clusters:
+            prev_total = prev_totals.get((c["sector"], c["country"]), 0)
+            delta = c["total"] - prev_total
+            session.add(ScreenerCluster(
+                run_id=run_id,
+                sector=c["sector"],
+                country=c["country"],
+                strong=c["strong"],
+                recovery=c["recovery"],
+                breakout=c["breakout"],
+                total=c["total"],
+                delta=delta,
+            ))
+        session.commit()
+
+
+def get_latest_screener_results():
+    """Return (stocks, clusters) from the most recent screener run, or ([], []) if none."""
+    with SessionLocal() as session:
+        latest_run = session.query(ScreenerRun).order_by(ScreenerRun.run_at.desc()).first()
+        if not latest_run:
+            return [], []
+
+        stocks = session.query(ScreenerStock).filter(ScreenerStock.run_id == latest_run.id).all()
+        clusters = (
+            session.query(ScreenerCluster)
+            .filter(ScreenerCluster.run_id == latest_run.id)
+            .order_by(ScreenerCluster.total.desc())
+            .all()
+        )
+
+        stock_dicts = [{
+            "symbol": s.symbol, "name": s.name, "exchange": s.exchange,
+            "country": s.country, "sector": s.sector, "industry": s.industry,
+            "price": s.price, "year_low": s.year_low, "low_3m": s.low_3m,
+            "pct_above_52w": s.pct_above_52w, "pct_above_3m": s.pct_above_3m,
+            "vol_ratio": s.vol_ratio, "vol_flag": s.vol_flag or "", "signal": s.signal,
+        } for s in stocks]
+
+        cluster_dicts = [{
+            "sector": c.sector, "country": c.country,
+            "strong": c.strong, "recovery": c.recovery, "breakout": c.breakout,
+            "total": c.total, "delta": c.delta,
+        } for c in clusters]
+
+        return stock_dicts, cluster_dicts

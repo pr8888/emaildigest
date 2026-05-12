@@ -9,7 +9,11 @@ import os
 
 load_dotenv()
 
-from database import init_db, save_article, get_weekly_articles, save_digest, save_feedback, get_feedback_history, get_article_count, get_queued_articles
+from database import (
+    init_db, save_article, get_weekly_articles, save_digest, save_feedback,
+    get_feedback_history, get_article_count, get_queued_articles,
+    save_screener_run, save_screener_stocks, save_screener_clusters, get_latest_screener_results,
+)
 from claude import summarize_article, compose_digest
 from email_utils import parse_inbound_email, send_digest_email
 
@@ -24,6 +28,11 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         run_weekly_digest,
         CronTrigger(day_of_week="sat", hour=0, minute=0, timezone="UTC"),
+    )
+    # Sunday 00:00 UTC = Sunday 8:00 AM SGT
+    scheduler.add_job(
+        run_weekly_screener,
+        CronTrigger(day_of_week="sun", hour=0, minute=0, timezone="UTC"),
     )
     scheduler.start()
     yield
@@ -219,3 +228,33 @@ async def queued_articles():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── Screener ─────────────────────────────────────────────────────────────────
+
+def run_weekly_screener():
+    from screener.logic import run_screen
+    from screener.report import build_screener_email
+
+    stocks, clusters = run_screen()
+    if not stocks:
+        return
+
+    run_id = save_screener_run(stock_count=len(stocks), cluster_count=len(clusters))
+    save_screener_stocks(run_id, stocks)
+    save_screener_clusters(run_id, clusters)
+
+    # Re-fetch clusters with delta populated from DB
+    _, clusters_with_delta = get_latest_screener_results()
+
+    html, plain = build_screener_email(clusters_with_delta, stocks)
+    week_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    from email_utils import send_digest_email
+    send_digest_email(html, plain, subject=f"Weekly Stock Screen — {week_str}")
+
+
+@app.post("/screener/send")
+async def trigger_screener(background_tasks: BackgroundTasks):
+    """Manual trigger for the weekly stock screener."""
+    background_tasks.add_task(run_weekly_screener)
+    return {"status": "screener started — email will arrive in ~10-15 minutes"}
