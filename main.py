@@ -301,19 +301,16 @@ async def debug_screener():
                 }
                 break
 
-        # Show raw bulk price response so we can diagnose
-        import requests as req
-        bulk_raw = req.get(
-            "https://eodhd.com/api/eod/bulk_last_day/US",
-            params={"api_token": key, "fmt": "json"},
-            timeout=15,
-        )
+        # Count valid tickers after filtering
+        from screener.fmp import _is_valid_ticker
+        valid = [s for s in common if s.get("Type") == "Common Stock" and _is_valid_ticker(s["Code"], "US")]
 
         return {
-            "bulk_status": bulk_raw.status_code,
-            "bulk_sample": bulk_raw.text[:500],
-            "symbol_list_sample": results[:3],
+            "total_us_symbols": len(common),
+            "valid_after_filter": len(valid),
+            "valid_sample": [{"ticker": s["Code"], "name": s["Name"]} for s in valid[:5]],
             "history_test": history_test,
+            "status": "ok",
         }
     except Exception:
         return {"error": traceback.format_exc()}

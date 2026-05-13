@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 BASE = "https://eodhd.com/api"
 
-# EODHD exchange codes for IBKR-tradeable markets
 EXCHANGES = [
     "US",    # NYSE / NASDAQ / AMEX
     "TO",    # Canada (Toronto)
@@ -25,7 +24,6 @@ EXCHANGES = [
 ]
 
 COMMON_STOCK_TYPES = {"Common Stock", "common_stock", "stock"}
-MIN_PRICE = 1.0  # exclude penny/shell stocks
 
 
 def _get(path, params=None):
@@ -37,22 +35,24 @@ def _get(path, params=None):
     return r.json()
 
 
-def fetch_bulk_prices(exchange):
-    """One API call — returns {ticker: last_close} for all stocks on exchange."""
-    try:
-        data = _get(f"/eod/bulk_last_day/{exchange}")
-        if not isinstance(data, list):
-            return {}
-        return {d["code"]: d.get("close") or 0 for d in data}
-    except Exception:
-        return {}
+def _is_valid_ticker(ticker, exchange):
+    """
+    Filter out indices, OTC shells, and foreign listings.
+    For US: only standard NYSE/NASDAQ tickers (1-5 uppercase letters, no digits).
+    For others: exclude obvious non-stocks (^ prefix, blank).
+    """
+    if not ticker or ticker.startswith("^"):
+        return False
+    if exchange == "US":
+        return ticker.isalpha() and 1 <= len(ticker) <= 5
+    return True
 
 
 def fetch_universe():
     """
-    Returns list of stock dicts for common stocks across all target exchanges,
-    pre-filtered to price > $1 using the bulk EOD endpoint.
-    Each dict: ticker, exchange, name, country, current_price.
+    Returns common stocks across all exchanges.
+    Pre-filtered by ticker format — no bulk price call needed.
+    Price filtering happens in logic.py after history is fetched.
     """
     all_stocks = []
     for exchange in EXCHANGES:
@@ -60,22 +60,17 @@ def fetch_universe():
             symbols = _get(f"/exchange-symbol-list/{exchange}")
             if not isinstance(symbols, list):
                 continue
-            bulk_prices = fetch_bulk_prices(exchange)
             for s in symbols:
                 if s.get("Type") not in COMMON_STOCK_TYPES:
                     continue
                 ticker = s.get("Code", "")
-                if not ticker:
-                    continue
-                price = bulk_prices.get(ticker, 0)
-                if price < MIN_PRICE:
+                if not _is_valid_ticker(ticker, exchange):
                     continue
                 all_stocks.append({
                     "ticker": ticker,
                     "exchange": exchange,
                     "name": s.get("Name") or "",
                     "country": s.get("Country") or "",
-                    "current_price": price,
                 })
             time.sleep(0.3)
         except Exception:
