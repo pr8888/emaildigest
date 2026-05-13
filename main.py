@@ -284,20 +284,13 @@ async def test_eodhd():
             timeout=15,
         )
         symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
-        # Test yfinance sector lookup
-        import yfinance as yf
-        aapl_info = yf.Ticker("AAPL").info
-        yf_sector = aapl_info.get("sector", "not found")
-        yf_industry = aapl_info.get("industryDisp") or aapl_info.get("industry", "not found")
-
         symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
         return {
             "symbol_list_status": symbol_list.status_code,
             "symbol_list_count": len(symbol_data) if isinstance(symbol_data, list) else "error",
             "history_status": history.status_code,
             "history_sample": history.text[:200],
-            "yfinance_sector": yf_sector,
-            "yfinance_industry": yf_industry,
+            "all_systems": "go" if symbol_list.ok and history.ok else "check errors above",
         }
     except Exception as e:
         return {"error": str(e)}

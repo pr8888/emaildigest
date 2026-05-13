@@ -5,27 +5,27 @@ from datetime import datetime, timedelta
 
 BASE = "https://eodhd.com/api"
 
-# EODHD exchange codes → Yahoo Finance suffix (for sector/industry lookup)
-EXCHANGES = {
-    "US":    "",     # NYSE / NASDAQ / AMEX
-    "TO":    ".TO",  # Canada (Toronto)
-    "LSE":   ".L",   # UK (London)
-    "XETRA": ".DE",  # Germany
-    "PA":    ".PA",  # France (Paris)
-    "AS":    ".AS",  # Netherlands (Amsterdam)
-    "SW":    ".SW",  # Switzerland
-    "ST":    ".ST",  # Sweden (Stockholm)
-    "T":     ".T",   # Japan (Tokyo)
-    "HK":    ".HK",  # Hong Kong
-    "AU":    ".AX",  # Australia (ASX)
-    "SI":    ".SI",  # Singapore
-    "KO":    ".KS",  # South Korea
-    "SA":    ".SA",  # Brazil (B3)
-    "MX":    ".MX",  # Mexico
-}
+# EODHD exchange codes for IBKR-tradeable markets
+EXCHANGES = [
+    "US",    # NYSE / NASDAQ / AMEX
+    "TO",    # Canada (Toronto)
+    "LSE",   # UK (London)
+    "XETRA", # Germany
+    "PA",    # France (Paris)
+    "AS",    # Netherlands (Amsterdam)
+    "SW",    # Switzerland
+    "ST",    # Sweden (Stockholm)
+    "T",     # Japan (Tokyo)
+    "HK",    # Hong Kong
+    "AU",    # Australia (ASX)
+    "SI",    # Singapore
+    "KO",    # South Korea
+    "SA",    # Brazil (B3)
+    "MX",    # Mexico
+]
 
 COMMON_STOCK_TYPES = {"Common Stock", "common_stock", "stock"}
-MIN_PRICE = 1.0  # exclude sub-$1 stocks (penny stocks, shells, etc.)
+MIN_PRICE = 1.0  # exclude penny/shell stocks
 
 
 def _get(path, params=None):
@@ -38,10 +38,7 @@ def _get(path, params=None):
 
 
 def fetch_bulk_prices(exchange):
-    """
-    Returns {ticker: last_close_price} for all stocks on the exchange.
-    One API call per exchange — used to pre-filter before fetching full history.
-    """
+    """One API call — returns {ticker: last_close} for all stocks on exchange."""
     try:
         data = _get(f"/eod/bulk_last_day/{exchange}")
         if not isinstance(data, list):
@@ -55,18 +52,15 @@ def fetch_universe():
     """
     Returns list of stock dicts for common stocks across all target exchanges,
     pre-filtered to price > $1 using the bulk EOD endpoint.
+    Each dict: ticker, exchange, name, country, current_price.
     """
     all_stocks = []
     for exchange in EXCHANGES:
         try:
-            # Get symbol metadata
             symbols = _get(f"/exchange-symbol-list/{exchange}")
             if not isinstance(symbols, list):
                 continue
-
-            # Get current prices in one call (pre-filter)
             bulk_prices = fetch_bulk_prices(exchange)
-
             for s in symbols:
                 if s.get("Type") not in COMMON_STOCK_TYPES:
                     continue
@@ -100,20 +94,3 @@ def fetch_history(ticker, exchange, days=370):
         return data if isinstance(data, list) else []
     except Exception:
         return []
-
-
-def fetch_fundamentals(ticker, exchange):
-    """
-    Return sector and industry via Yahoo Finance (free).
-    Only called for stocks that passed the screen.
-    """
-    try:
-        import yfinance as yf
-        yahoo_symbol = f"{ticker}{EXCHANGES[exchange]}"
-        info = yf.Ticker(yahoo_symbol).info
-        return {
-            "sector": info.get("sector") or "",
-            "industry": info.get("industryDisp") or info.get("industry") or "",
-        }
-    except Exception:
-        return {"sector": "", "industry": ""}
