@@ -233,24 +233,27 @@ async def health():
 # ── Screener ─────────────────────────────────────────────────────────────────
 
 def run_weekly_screener():
-    from screener.logic import run_screen
-    from screener.report import build_screener_email
+    import traceback
+    try:
+        from screener.logic import run_screen
+        from screener.report import build_screener_email
 
-    stocks, clusters = run_screen()
-    if not stocks:
-        return
+        stocks, clusters = run_screen()
+        if not stocks:
+            print("SCREENER: no qualifying stocks found — email not sent")
+            return
 
-    run_id = save_screener_run(stock_count=len(stocks), cluster_count=len(clusters))
-    save_screener_stocks(run_id, stocks)
-    save_screener_clusters(run_id, clusters)
+        run_id = save_screener_run(stock_count=len(stocks), cluster_count=len(clusters))
+        save_screener_stocks(run_id, stocks)
+        save_screener_clusters(run_id, clusters)
 
-    # Re-fetch clusters with delta populated from DB
-    _, clusters_with_delta = get_latest_screener_results()
-
-    html, plain = build_screener_email(clusters_with_delta, stocks)
-    week_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
-    from email_utils import send_digest_email
-    send_digest_email(html, plain, subject=f"Weekly Stock Screen — {week_str}")
+        _, clusters_with_delta = get_latest_screener_results()
+        html, plain = build_screener_email(clusters_with_delta, stocks)
+        week_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+        send_digest_email(html, plain, subject=f"Weekly Stock Screen — {week_str}")
+        print(f"SCREENER: done — {len(stocks)} stocks, email sent")
+    except Exception:
+        print("SCREENER ERROR:\n" + traceback.format_exc())
 
 
 @app.post("/screener/send")
@@ -258,6 +261,54 @@ async def trigger_screener(background_tasks: BackgroundTasks):
     """Manual trigger for the weekly stock screener."""
     background_tasks.add_task(run_weekly_screener)
     return {"status": "screener started — email will arrive in ~10-15 minutes"}
+
+
+@app.get("/screener/debug")
+async def debug_screener():
+    """Runs a mini-screen on 20 US stocks synchronously — shows errors immediately."""
+    import traceback
+    try:
+        from screener.fmp import fetch_bulk_prices, _get
+        import time
+
+        key = os.environ.get("EODHD_API_KEY", "NOT SET")
+        if key == "NOT SET":
+            return {"error": "EODHD_API_KEY not set"}
+
+        # Grab 20 common stocks from US exchange
+        symbols = _get("/exchange-symbol-list/US")
+        common = [s for s in symbols if s.get("Type") == "Common Stock"][:20]
+
+        bulk = fetch_bulk_prices("US")
+
+        results = []
+        for s in common:
+            ticker = s["Code"]
+            price = bulk.get(ticker, 0)
+            results.append({"ticker": ticker, "name": s.get("Name"), "price": price})
+            time.sleep(0.1)
+
+        # Try fetching history for the first qualifying stock
+        history_test = None
+        for r in results:
+            if r["price"] > 1:
+                from screener.fmp import fetch_history
+                hist = fetch_history(r["ticker"], "US", days=30)
+                history_test = {
+                    "ticker": r["ticker"],
+                    "days_returned": len(hist),
+                    "latest": hist[-1] if hist else None,
+                }
+                break
+
+        return {
+            "stocks_sampled": len(results),
+            "sample": results[:5],
+            "history_test": history_test,
+            "status": "ok",
+        }
+    except Exception:
+        return {"error": traceback.format_exc()}
 
 
 @app.get("/screener/test-eodhd")
