@@ -262,24 +262,27 @@ async def trigger_screener(background_tasks: BackgroundTasks):
 
 @app.get("/screener/test-fmp")
 async def test_fmp():
-    """Diagnostic: tests FMP API key and returns first 5 results from NYSE screener."""
+    """Diagnostic: tests FMP stable API and returns first 3 results from screener + 5 days of AAPL history."""
     import requests
     key = os.environ.get("FMP_API_KEY", "NOT SET")
     if key == "NOT SET":
         return {"error": "FMP_API_KEY not set"}
     try:
-        r = requests.get(
-            "https://financialmodelingprep.com/api/v3/stock-screener",
-            params={
-                "exchange": "NYSE",
-                "marketCapMoreThan": 50000000,
-                "isActivelyTrading": "true",
-                "isEtf": "false",
-                "limit": 5,
-                "apikey": key,
-            },
+        screener = requests.get(
+            "https://financialmodelingprep.com/stable/company-screener",
+            params={"exchange": "NYSE", "marketCapMoreThan": 50000000, "limit": 3, "apikey": key},
             timeout=15,
         )
-        return {"status_code": r.status_code, "results": r.json()}
+        history = requests.get(
+            "https://financialmodelingprep.com/stable/historical-price-eod/full",
+            params={"symbol": "AAPL", "from": "2026-05-01", "apikey": key},
+            timeout=15,
+        )
+        return {
+            "screener_status": screener.status_code,
+            "screener_sample": screener.json(),
+            "history_status": history.status_code,
+            "history_sample": history.json(),
+        }
     except Exception as e:
         return {"error": str(e)}
