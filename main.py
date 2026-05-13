@@ -280,9 +280,9 @@ async def test_fmp():
         )
         return {
             "screener_status": screener.status_code,
-            "screener_sample": screener.json(),
+            "screener_raw": screener.text[:500],
             "history_status": history.status_code,
-            "history_sample": history.json(),
+            "history_raw": history.text[:500],
         }
     except Exception as e:
         return {"error": str(e)}
