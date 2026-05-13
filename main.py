@@ -278,11 +278,25 @@ async def test_fmp():
             params={"symbol": "AAPL", "from": "2026-05-01", "apikey": key},
             timeout=15,
         )
+        # Test batch quotes (replaces screener — includes yearHigh/yearLow per stock)
+        quotes = requests.get(
+            "https://financialmodelingprep.com/stable/quotes/NYSE",
+            params={"apikey": key},
+            timeout=15,
+        )
+        # Test stock list
+        stock_list = requests.get(
+            "https://financialmodelingprep.com/stable/stock-list",
+            params={"apikey": key},
+            timeout=15,
+        )
         return {
-            "screener_status": screener.status_code,
-            "screener_raw": screener.text[:500],
             "history_status": history.status_code,
-            "history_raw": history.text[:500],
+            "history_sample": history.text[:300],
+            "quotes_status": quotes.status_code,
+            "quotes_sample": quotes.text[:300],
+            "stock_list_status": stock_list.status_code,
+            "stock_list_sample": stock_list.text[:300],
         }
     except Exception as e:
         return {"error": str(e)}
