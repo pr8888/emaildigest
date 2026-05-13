@@ -258,3 +258,28 @@ async def trigger_screener(background_tasks: BackgroundTasks):
     """Manual trigger for the weekly stock screener."""
     background_tasks.add_task(run_weekly_screener)
     return {"status": "screener started — email will arrive in ~10-15 minutes"}
+
+
+@app.get("/screener/test-fmp")
+async def test_fmp():
+    """Diagnostic: tests FMP API key and returns first 5 results from NYSE screener."""
+    import requests
+    key = os.environ.get("FMP_API_KEY", "NOT SET")
+    if key == "NOT SET":
+        return {"error": "FMP_API_KEY not set"}
+    try:
+        r = requests.get(
+            "https://financialmodelingprep.com/api/v3/stock-screener",
+            params={
+                "exchange": "NYSE",
+                "marketCapMoreThan": 50000000,
+                "isActivelyTrading": "true",
+                "isEtf": "false",
+                "limit": 5,
+                "apikey": key,
+            },
+            timeout=15,
+        )
+        return {"status_code": r.status_code, "results": r.json()}
+    except Exception as e:
+        return {"error": str(e)}
