@@ -1,37 +1,37 @@
 import os
 import time
 import requests
+from datetime import datetime, timedelta
 
-BASE = "https://financialmodelingprep.com/api"
+BASE = "https://eodhd.com/api"
 
-# IBKR-tradeable exchanges using FMP's exchangeShortName values.
-# Verify against https://financialmodelingprep.com/developer/docs#exchanges-list if any return no data.
+# EODHD exchange codes for IBKR-tradeable markets.
+# Verify against https://eodhd.com/financial-apis/stock-market-list/ if any return empty.
 EXCHANGES = [
-    # Americas
-    "NYSE", "NASDAQ", "AMEX",
-    "TSX",     # Canada
-    "BVMF",    # Brazil (B3)
-    "BMV",     # Mexico
-    # Europe
-    "LSE",     # UK
-    "XETRA",   # Germany
-    "EURONEXT",# France / Netherlands / Belgium
-    "SWX",     # Switzerland
-    "STO",     # Sweden
-    # Asia-Pacific
-    "TSE",     # Japan
-    "HKSE",    # Hong Kong
-    "ASX",     # Australia
-    "SGX",     # Singapore
-    "KSE",     # South Korea
+    "US",    # NYSE / NASDAQ / AMEX
+    "TO",    # Canada (Toronto)
+    "LSE",   # UK (London)
+    "XETRA", # Germany
+    "PA",    # France (Paris)
+    "AS",    # Netherlands (Amsterdam)
+    "SW",    # Switzerland
+    "ST",    # Sweden (Stockholm)
+    "T",     # Japan (Tokyo)
+    "HK",    # Hong Kong
+    "AU",    # Australia (ASX)
+    "SI",    # Singapore
+    "KO",    # South Korea
+    "SA",    # Brazil (B3/São Paulo)
+    "MX",    # Mexico
 ]
 
-MIN_MARKET_CAP = 50_000_000  # USD — excludes micro/nano caps
+COMMON_STOCK_TYPES = {"Common Stock", "common_stock", "stock"}
 
 
 def _get(path, params=None):
     p = params or {}
-    p["apikey"] = os.environ["FMP_API_KEY"]
+    p["api_token"] = os.environ["EODHD_API_KEY"]
+    p["fmt"] = "json"
     r = requests.get(f"{BASE}{path}", params=p, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -39,47 +39,52 @@ def _get(path, params=None):
 
 def fetch_universe():
     """
-    Pull all non-ETF, actively-traded stocks from target exchanges.
-    Pre-filters to price >= 1.30 * yearLow so we only fetch history
-    for stocks that could qualify for either signal.
+    Returns list of stock dicts for all common stocks across target exchanges.
+    Each dict has: ticker, exchange, name, country.
     """
-    candidates = []
+    all_stocks = []
     for exchange in EXCHANGES:
-        offset = 0
-        while True:
-            try:
-                batch = _get("/v3/stock-screener", {
-                    "exchange": exchange,
-                    "marketCapMoreThan": MIN_MARKET_CAP,
-                    "isActivelyTrading": "true",
-                    "isEtf": "false",
-                    "limit": 250,
-                    "offset": offset,
-                })
-            except Exception:
-                break
-
-            if not batch:
-                break
-
-            for s in batch:
-                price = s.get("price") or 0
-                year_low = s.get("yearLow") or 0
-                if price > 0 and year_low > 0 and price >= year_low * 1.30:
-                    candidates.append(s)
-
-            if len(batch) < 250:
-                break
-            offset += 250
-            time.sleep(0.25)
-
-    return candidates
+        try:
+            symbols = _get(f"/exchange-symbol-list/{exchange}")
+            if not isinstance(symbols, list):
+                continue
+            for s in symbols:
+                if s.get("Type") in COMMON_STOCK_TYPES:
+                    all_stocks.append({
+                        "ticker": s["Code"],
+                        "exchange": exchange,
+                        "name": s.get("Name") or "",
+                        "country": s.get("Country") or "",
+                    })
+            time.sleep(0.2)
+        except Exception:
+            continue
+    return all_stocks
 
 
-def fetch_history(symbol, days=65):
-    """Return up to N daily OHLCV records (newest first) for a symbol."""
+def fetch_history(ticker, exchange, days=370):
+    """
+    Return EOD history for the last N calendar days.
+    EODHD returns data oldest-first.
+    Each record: {date, open, high, low, close, adjusted_close, volume}
+    """
+    from_date = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
-        data = _get(f"/v3/historical-price-full/{symbol}", {"timeseries": days})
-        return data.get("historical", [])
+        data = _get(f"/eod/{ticker}.{exchange}", {"from": from_date})
+        return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def fetch_fundamentals(ticker, exchange):
+    """Return sector and industry for a qualifying stock."""
+    try:
+        data = _get(f"/fundamentals/{ticker}.{exchange}", {"filter": "General"})
+        if isinstance(data, dict):
+            return {
+                "sector": data.get("Sector") or "",
+                "industry": data.get("Industry") or "",
+            }
+    except Exception:
+        pass
+    return {"sector": "", "industry": ""}

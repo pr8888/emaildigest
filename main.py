@@ -260,43 +260,38 @@ async def trigger_screener(background_tasks: BackgroundTasks):
     return {"status": "screener started — email will arrive in ~10-15 minutes"}
 
 
-@app.get("/screener/test-fmp")
-async def test_fmp():
-    """Diagnostic: tests FMP stable API and returns first 3 results from screener + 5 days of AAPL history."""
+@app.get("/screener/test-eodhd")
+async def test_eodhd():
+    """Diagnostic: tests EODHD API key, symbol list, and historical price endpoint."""
     import requests
-    key = os.environ.get("FMP_API_KEY", "NOT SET")
+    key = os.environ.get("EODHD_API_KEY", "NOT SET")
     if key == "NOT SET":
-        return {"error": "FMP_API_KEY not set"}
+        return {"error": "EODHD_API_KEY not set"}
     try:
-        screener = requests.get(
-            "https://financialmodelingprep.com/stable/company-screener",
-            params={"exchange": "NYSE", "marketCapMoreThan": 50000000, "limit": 3, "apikey": key},
+        symbol_list = requests.get(
+            "https://eodhd.com/api/exchange-symbol-list/US",
+            params={"api_token": key, "fmt": "json"},
             timeout=15,
         )
         history = requests.get(
-            "https://financialmodelingprep.com/stable/historical-price-eod/full",
-            params={"symbol": "AAPL", "from": "2026-05-01", "apikey": key},
+            "https://eodhd.com/api/eod/AAPL.US",
+            params={"api_token": key, "fmt": "json", "from": "2026-05-01"},
             timeout=15,
         )
-        # Test batch quotes (replaces screener — includes yearHigh/yearLow per stock)
-        quotes = requests.get(
-            "https://financialmodelingprep.com/stable/quotes/NYSE",
-            params={"apikey": key},
+        fundamentals = requests.get(
+            "https://eodhd.com/api/fundamentals/AAPL.US",
+            params={"api_token": key, "fmt": "json", "filter": "General"},
             timeout=15,
         )
-        # Test stock list
-        stock_list = requests.get(
-            "https://financialmodelingprep.com/stable/stock-list",
-            params={"apikey": key},
-            timeout=15,
-        )
+        symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
         return {
+            "symbol_list_status": symbol_list.status_code,
+            "symbol_list_count": len(symbol_data) if isinstance(symbol_data, list) else "error",
+            "symbol_list_sample": symbol_data[:2] if isinstance(symbol_data, list) else symbol_data,
             "history_status": history.status_code,
             "history_sample": history.text[:300],
-            "quotes_status": quotes.status_code,
-            "quotes_sample": quotes.text[:300],
-            "stock_list_status": stock_list.status_code,
-            "stock_list_sample": stock_list.text[:300],
+            "fundamentals_status": fundamentals.status_code,
+            "fundamentals_sample": fundamentals.text[:300],
         }
     except Exception as e:
         return {"error": str(e)}
