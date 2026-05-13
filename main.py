@@ -301,11 +301,19 @@ async def debug_screener():
                 }
                 break
 
+        # Show raw bulk price response so we can diagnose
+        import requests as req
+        bulk_raw = req.get(
+            "https://eodhd.com/api/eod/bulk_last_day/US",
+            params={"api_token": key, "fmt": "json"},
+            timeout=15,
+        )
+
         return {
-            "stocks_sampled": len(results),
-            "sample": results[:5],
+            "bulk_status": bulk_raw.status_code,
+            "bulk_sample": bulk_raw.text[:500],
+            "symbol_list_sample": results[:3],
             "history_test": history_test,
-            "status": "ok",
         }
     except Exception:
         return {"error": traceback.format_exc()}
