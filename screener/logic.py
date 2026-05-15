@@ -27,7 +27,7 @@ def run_screen():
 
         # EODHD returns oldest-first; last record = most recent trading day
         price = history[-1].get("close") or 0
-        if price <= 0:
+        if price < 2.0:  # exclude penny stocks
             continue
 
         all_lows = [d["low"] for d in history if d.get("low")]
