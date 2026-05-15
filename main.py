@@ -265,51 +265,42 @@ async def trigger_screener(background_tasks: BackgroundTasks):
 
 @app.get("/screener/debug")
 async def debug_screener():
-    """Runs a mini-screen on 20 US stocks synchronously — shows errors immediately."""
-    import traceback
+    """Mini-screen: fetch 5 valid US stocks, get history, check metrics."""
+    import traceback, time
     try:
-        from screener.fmp import fetch_bulk_prices, _get
-        import time
+        from screener.fmp import _get, _is_valid_ticker, fetch_history
 
-        key = os.environ.get("EODHD_API_KEY", "NOT SET")
-        if key == "NOT SET":
-            return {"error": "EODHD_API_KEY not set"}
-
-        # Grab 20 common stocks from US exchange
+        # Get US symbol list and filter to valid common stocks
         symbols = _get("/exchange-symbol-list/US")
-        common = [s for s in symbols if s.get("Type") == "Common Stock"][:20]
+        valid = [
+            s for s in symbols
+            if s.get("Type") == "Common Stock" and _is_valid_ticker(s.get("Code", ""), "US")
+        ]
 
-        bulk = fetch_bulk_prices("US")
-
-        results = []
-        for s in common:
+        # Fetch history for first 5 valid tickers
+        tested = []
+        for s in valid[:5]:
             ticker = s["Code"]
-            price = bulk.get(ticker, 0)
-            results.append({"ticker": ticker, "name": s.get("Name"), "price": price})
-            time.sleep(0.1)
-
-        # Try fetching history for the first qualifying stock
-        history_test = None
-        for r in results:
-            if r["price"] > 1:
-                from screener.fmp import fetch_history
-                hist = fetch_history(r["ticker"], "US", days=30)
-                history_test = {
-                    "ticker": r["ticker"],
-                    "days_returned": len(hist),
-                    "latest": hist[-1] if hist else None,
-                }
-                break
-
-        # Count valid tickers after filtering
-        from screener.fmp import _is_valid_ticker
-        valid = [s for s in common if s.get("Type") == "Common Stock" and _is_valid_ticker(s["Code"], "US")]
+            hist = fetch_history(ticker, "US", days=370)
+            if len(hist) < 20:
+                tested.append({"ticker": ticker, "status": "insufficient history"})
+                continue
+            price = hist[-1].get("close", 0)
+            year_low = min(d["low"] for d in hist if d.get("low"))
+            pct = round((price - year_low) / year_low * 100, 1) if year_low else 0
+            tested.append({
+                "ticker": ticker,
+                "name": s.get("Name"),
+                "price": price,
+                "year_low": round(year_low, 2),
+                "pct_above_52w": pct,
+                "qualifies": pct >= 30,
+            })
+            time.sleep(0.2)
 
         return {
-            "total_us_symbols": len(common),
-            "valid_after_filter": len(valid),
-            "valid_sample": [{"ticker": s["Code"], "name": s["Name"]} for s in valid[:5]],
-            "history_test": history_test,
+            "total_valid_us_stocks": len(valid),
+            "test_results": tested,
             "status": "ok",
         }
     except Exception:
