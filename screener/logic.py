@@ -20,6 +20,7 @@ def run_screen():
     clusters — list of dicts grouped by (sector, country), sorted by total desc
     """
     universe = fetch_universe()
+    print(f"SCREENER: universe size = {len(universe)} stocks across all exchanges")
     results = []
 
     for i, stock in enumerate(universe):
@@ -98,11 +99,15 @@ def run_screen():
             "signal": signal,
         })
 
-        if (i + 1) % 200 == 0:
+        if (i + 1) % 1000 == 0:
+            print(f"SCREENER: {i+1}/{len(universe)} scanned, {len(results)} qualifying so far")
+            time.sleep(2)
+        elif (i + 1) % 200 == 0:
             time.sleep(2)
         else:
             time.sleep(0.1)
 
+    print(f"SCREENER: scan complete — {len(results)} stocks qualify, starting sector enrichment")
     _enrich_sectors(results)
     clusters = _build_clusters(results)
     return results, clusters
