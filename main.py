@@ -331,13 +331,19 @@ async def test_eodhd():
             timeout=15,
         )
         symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
+        # Test bulk fundamentals endpoint
+        bulk_fund = requests.get(
+            "https://eodhd.com/api/bulk-fundamental-data/US",
+            params={"api_token": key, "fmt": "json", "limit": 3, "offset": 0},
+            timeout=20,
+        )
+
         symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
         return {
             "symbol_list_status": symbol_list.status_code,
-            "symbol_list_count": len(symbol_data) if isinstance(symbol_data, list) else "error",
             "history_status": history.status_code,
-            "history_sample": history.text[:200],
-            "all_systems": "go" if symbol_list.ok and history.ok else "check errors above",
+            "bulk_fundamentals_status": bulk_fund.status_code,
+            "bulk_fundamentals_sample": bulk_fund.text[:600],
         }
     except Exception as e:
         return {"error": str(e)}
