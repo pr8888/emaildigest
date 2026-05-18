@@ -81,12 +81,42 @@ class ScreenerCluster(Base):
     delta = Column(Integer, default=0)  # change vs previous run
 
 
+class SectorCache(Base):
+    __tablename__ = "sector_cache"
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String(20), index=True)
+    exchange = Column(String(20))
+    sector = Column(String(200), default="")
+    industry = Column(String(200), default="")
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def init_db():
     Base.metadata.create_all(engine)
-    # Add is_paywalled column to existing tables if it doesn't exist yet
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_paywalled BOOLEAN DEFAULT FALSE"))
         conn.commit()
+
+
+def get_cached_sector(ticker, exchange):
+    """Returns (sector, industry) from cache, or None if not cached."""
+    with SessionLocal() as session:
+        row = session.query(SectorCache).filter_by(ticker=ticker, exchange=exchange).first()
+        if row:
+            return row.sector or "", row.industry or ""
+        return None
+
+
+def save_sector_cache(ticker, exchange, sector, industry):
+    with SessionLocal() as session:
+        existing = session.query(SectorCache).filter_by(ticker=ticker, exchange=exchange).first()
+        if existing:
+            existing.sector = sector
+            existing.industry = industry
+            existing.fetched_at = datetime.now(timezone.utc)
+        else:
+            session.add(SectorCache(ticker=ticker, exchange=exchange, sector=sector, industry=industry))
+        session.commit()
 
 
 def save_article(subject, sender, raw_content, summary, tags, must_read_score, is_paywalled=False):

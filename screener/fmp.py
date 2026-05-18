@@ -23,6 +23,22 @@ EXCHANGES = [
     "MX",    # Mexico
 ]
 
+# Fallback country names when EODHD returns blank
+EXCHANGE_COUNTRIES = {
+    "US": "USA", "TO": "Canada", "LSE": "UK", "XETRA": "Germany",
+    "PA": "France", "AS": "Netherlands", "SW": "Switzerland", "ST": "Sweden",
+    "T": "Japan", "HK": "Hong Kong", "AU": "Australia", "SI": "Singapore",
+    "KO": "South Korea", "SA": "Brazil", "MX": "Mexico",
+}
+
+# EODHD exchange code → Finnhub symbol suffix
+FINNHUB_SUFFIX = {
+    "US": "",    "TO": ".TO",  "LSE": ".L",   "XETRA": ".DE",
+    "PA": ".PA", "AS": ".AS",  "SW": ".SW",   "ST": ".ST",
+    "T": ".T",   "HK": ".HK", "AU": ".AX",   "SI": ".SI",
+    "KO": ".KS", "SA": ".SA", "MX": ".MX",
+}
+
 COMMON_STOCK_TYPES = {"Common Stock", "common_stock", "stock"}
 
 
@@ -36,11 +52,6 @@ def _get(path, params=None):
 
 
 def _is_valid_ticker(ticker, exchange):
-    """
-    Filter out indices, OTC shells, and foreign listings.
-    For US: only standard NYSE/NASDAQ tickers (1-5 uppercase letters, no digits).
-    For others: exclude obvious non-stocks (^ prefix, blank).
-    """
     if not ticker or ticker.startswith("^"):
         return False
     if exchange == "US":
@@ -49,11 +60,6 @@ def _is_valid_ticker(ticker, exchange):
 
 
 def fetch_universe():
-    """
-    Returns common stocks across all exchanges.
-    Pre-filtered by ticker format — no bulk price call needed.
-    Price filtering happens in logic.py after history is fetched.
-    """
     all_stocks = []
     for exchange in EXCHANGES:
         try:
@@ -66,11 +72,12 @@ def fetch_universe():
                 ticker = s.get("Code", "")
                 if not _is_valid_ticker(ticker, exchange):
                     continue
+                country = s.get("Country") or EXCHANGE_COUNTRIES.get(exchange, "")
                 all_stocks.append({
                     "ticker": ticker,
                     "exchange": exchange,
                     "name": s.get("Name") or "",
-                    "country": s.get("Country") or "",
+                    "country": country,
                 })
             time.sleep(0.3)
         except Exception:
@@ -79,13 +86,31 @@ def fetch_universe():
 
 
 def fetch_history(ticker, exchange, days=370):
-    """
-    Return EOD history for the last N calendar days, oldest-first.
-    Each record: {date, open, high, low, close, adjusted_close, volume}
-    """
     from_date = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
         data = _get(f"/eod/{ticker}.{exchange}", {"from": from_date})
         return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def fetch_sector(ticker, exchange):
+    """Fetch sector from Finnhub. Returns (sector, industry)."""
+    key = os.environ.get("FINNHUB_API_KEY", "")
+    if not key:
+        return "", ""
+    suffix = FINNHUB_SUFFIX.get(exchange, "")
+    symbol = ticker if exchange == "US" else f"{ticker}{suffix}"
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/stock/profile2",
+            params={"symbol": symbol, "token": key},
+            timeout=10,
+        )
+        if not r.ok:
+            return "", ""
+        data = r.json()
+        sector = data.get("finnhubIndustry") or ""
+        return sector, sector
+    except Exception:
+        return "", ""

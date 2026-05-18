@@ -1,10 +1,10 @@
 from datetime import date
 
-# Colour palette matches the existing digest email style
 STRONG_COLOR = "#1a7f37"
 RECOVERY_COLOR = "#0550ae"
 BREAKOUT_COLOR = "#9a3412"
 HEADER_BG = "#1a1a2e"
+STOCK_CAP = 50   # max stocks shown per signal category
 
 
 def build_screener_email(clusters, stocks, run_date=None):
@@ -12,12 +12,23 @@ def build_screener_email(clusters, stocks, run_date=None):
     if run_date is None:
         run_date = date.today().strftime("%b %d, %Y")
 
-    strong = [s for s in stocks if s["signal"] == "Strong"]
-    recovery = [s for s in stocks if s["signal"] == "Recovery"]
-    breakout = [s for s in stocks if s["signal"] == "Breakout"]
+    # Sort each category by the metric closest to threshold (ascending = freshest signal)
+    # then cap at STOCK_CAP
+    strong = sorted(
+        [s for s in stocks if s["signal"] == "Strong"],
+        key=lambda s: min(s["pct_above_52w"], s["pct_above_3m"])
+    )[:STOCK_CAP]
+    recovery = sorted(
+        [s for s in stocks if s["signal"] == "Recovery"],
+        key=lambda s: s["pct_above_52w"]
+    )[:STOCK_CAP]
+    breakout = sorted(
+        [s for s in stocks if s["signal"] == "Breakout"],
+        key=lambda s: s["pct_above_3m"]
+    )[:STOCK_CAP]
 
-    html = _build_html(clusters, strong, recovery, breakout, run_date)
-    plain = _build_plain(clusters, strong, recovery, breakout, run_date)
+    html = _build_html(clusters, strong, recovery, breakout, run_date, len(stocks))
+    plain = _build_plain(clusters, strong, recovery, breakout, run_date, len(stocks))
     return html, plain
 
 
@@ -43,9 +54,9 @@ def _delta_str(delta):
 
 def _cluster_rows(clusters):
     if not clusters:
-        return "<tr><td colspan='6' style='color:#888;padding:12px'>No clusters this week.</td></tr>"
+        return "<tr><td colspan='7' style='color:#888;padding:12px'>No clusters this week.</td></tr>"
     rows = []
-    for c in clusters[:30]:  # cap at top 30 clusters
+    for c in clusters[:30]:
         delta = c.get("delta", 0)
         rows.append(f"""
         <tr style="border-bottom:1px solid #eee">
@@ -66,12 +77,13 @@ def _stock_rows(stocks):
     rows = []
     for s in stocks:
         vol_cell = f"{s['vol_ratio']:.0%} {s['vol_flag']}"
+        sector_label = s.get("sector") or ""
         rows.append(f"""
         <tr style="border-bottom:1px solid #f0f0f0">
           <td style="padding:7px 10px;font-weight:600;color:#1a1a2e">{s['symbol']}</td>
-          <td style="padding:7px 10px;color:#444;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s['name']}</td>
+          <td style="padding:7px 10px;color:#444;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s['name']}</td>
           <td style="padding:7px 10px;color:#666">{s['country']}</td>
-          <td style="padding:7px 10px;color:#666;font-size:12px">{s['industry']}</td>
+          <td style="padding:7px 10px;color:#666;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{sector_label}</td>
           <td style="padding:7px 10px;text-align:right">${s['price']:.2f}</td>
           <td style="padding:7px 10px;text-align:center;color:{RECOVERY_COLOR};font-weight:600">+{s['pct_above_52w']}%</td>
           <td style="padding:7px 10px;text-align:center;color:{BREAKOUT_COLOR};font-weight:600">+{s['pct_above_3m']}%</td>
@@ -80,10 +92,11 @@ def _stock_rows(stocks):
     return "".join(rows)
 
 
-def _section_header(title, color, count):
+def _section_header(title, color, shown, total):
+    cap_note = f" — showing {shown} freshest" if shown < total else ""
     return f"""
     <h3 style="margin:32px 0 12px;font-size:16px;color:{color};font-family:Georgia,serif">
-      {title} <span style="font-size:13px;font-weight:normal;color:#888">({count} stocks)</span>
+      {title} <span style="font-size:13px;font-weight:normal;color:#888">({total} stocks{cap_note})</span>
     </h3>"""
 
 
@@ -95,7 +108,7 @@ def _stock_table(stocks):
           <th style="padding:8px 10px;text-align:left;color:#555">Symbol</th>
           <th style="padding:8px 10px;text-align:left;color:#555">Name</th>
           <th style="padding:8px 10px;text-align:left;color:#555">Country</th>
-          <th style="padding:8px 10px;text-align:left;color:#555">Industry</th>
+          <th style="padding:8px 10px;text-align:left;color:#555">Sector</th>
           <th style="padding:8px 10px;text-align:right;color:#555">Price</th>
           <th style="padding:8px 10px;text-align:center;color:{RECOVERY_COLOR}">vs 52w Low</th>
           <th style="padding:8px 10px;text-align:center;color:{BREAKOUT_COLOR}">vs 3m Low</th>
@@ -106,8 +119,12 @@ def _stock_table(stocks):
     </table>"""
 
 
-def _build_html(clusters, strong, recovery, breakout, run_date):
-    total = len(strong) + len(recovery) + len(breakout)
+def _build_html(clusters, strong, recovery, breakout, run_date, total_stocks):
+    all_strong = strong  # already capped
+    all_recovery = recovery
+    all_breakout = breakout
+    total_shown = len(strong) + len(recovery) + len(breakout)
+
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -118,22 +135,22 @@ def _build_html(clusters, strong, recovery, breakout, run_date):
   <div style="background:{HEADER_BG};border-radius:12px 12px 0 0;padding:28px 36px">
     <div style="font-size:11px;letter-spacing:2px;color:#8899bb;text-transform:uppercase;margin-bottom:6px">Weekly Stock Screen</div>
     <div style="font-size:24px;font-weight:700;color:#fff;font-family:Georgia,serif">{run_date}</div>
-    <div style="font-size:14px;color:#aab;margin-top:6px">{total} qualifying stocks across {len(clusters)} clusters</div>
+    <div style="font-size:14px;color:#aab;margin-top:6px">{total_stocks} qualifying stocks across {len(clusters)} clusters</div>
   </div>
 
   <!-- Signal guide -->
   <div style="background:#fff;padding:20px 36px;border-bottom:1px solid #eee">
     <div style="font-size:12px;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">How to read this</div>
     <div style="display:flex;gap:24px;flex-wrap:wrap">
-      <div>{_signal_badge("Strong")} &nbsp;30%+ above both 52-week low <em>and</em> 3-month low — highest conviction</div>
-      <div>{_signal_badge("Recovery")} &nbsp;30%+ above 52-week low — bombed-out stocks climbing back</div>
-      <div>{_signal_badge("Breakout")} &nbsp;30%+ above 3-month low — recent range break, momentum building</div>
+      <div>{_signal_badge("Strong")} &nbsp;30–100% above both 52w low <em>and</em> 3m low — highest conviction</div>
+      <div>{_signal_badge("Recovery")} &nbsp;30–100% above 52w low — bombed-out stocks climbing back</div>
+      <div>{_signal_badge("Breakout")} &nbsp;30–100% above 3m low — recent range break, momentum building</div>
     </div>
-    <div style="margin-top:10px;font-size:12px;color:#aaa">Vol Ratio = last 5 days avg volume ÷ 3-month avg volume. ⚠ = unusually quiet (&lt;50%).</div>
+    <div style="margin-top:10px;font-size:12px;color:#aaa">Stocks sorted freshest-first (closest to threshold). Vol Ratio = last 5 days avg ÷ 3m avg. ⚠ = below 50%.</div>
   </div>
 
   <!-- Cluster table -->
-  <div style="background:#fff;padding:28px 36px;margin-top:2px;border-radius:0">
+  <div style="background:#fff;padding:28px 36px;margin-top:2px">
     <div style="font-size:18px;font-weight:700;color:#1a1a2e;font-family:Georgia,serif;margin-bottom:16px">Top Clusters</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead>
@@ -153,27 +170,27 @@ def _build_html(clusters, strong, recovery, breakout, run_date):
 
   <!-- Strong stocks -->
   <div style="background:#fff;padding:28px 36px;margin-top:2px">
-    {_section_header("Strong Signals", STRONG_COLOR, len(strong))}
-    <p style="font-size:13px;color:#888;margin:0 0 12px">30%+ above both 52-week low and 3-month low. Both momentum and value signals firing.</p>
+    {_section_header("Strong Signals", STRONG_COLOR, len(strong), len(strong))}
+    <p style="font-size:13px;color:#888;margin:0 0 12px">30–100% above both 52w low and 3m low. Both momentum and value signals firing.</p>
     {_stock_table(strong)}
   </div>
 
   <!-- Recovery stocks -->
   <div style="background:#fff;padding:28px 36px;margin-top:2px">
-    {_section_header("Recovery Signals", RECOVERY_COLOR, len(recovery))}
-    <p style="font-size:13px;color:#888;margin:0 0 12px">30%+ above 52-week low only. Deep-value stocks that are climbing back.</p>
+    {_section_header("Recovery Signals", RECOVERY_COLOR, len(recovery), len(recovery))}
+    <p style="font-size:13px;color:#888;margin:0 0 12px">30–100% above 52w low. Deep-value stocks that are climbing back.</p>
     {_stock_table(recovery)}
   </div>
 
   <!-- Breakout stocks -->
   <div style="background:#fff;padding:28px 36px;margin-top:2px;border-radius:0 0 12px 12px">
-    {_section_header("Breakout Signals", BREAKOUT_COLOR, len(breakout))}
-    <p style="font-size:13px;color:#888;margin:0 0 12px">30%+ above 3-month low only. Recent momentum — watch these for continuation.</p>
+    {_section_header("Breakout Signals", BREAKOUT_COLOR, len(breakout), len(breakout))}
+    <p style="font-size:13px;color:#888;margin:0 0 12px">30–100% above 3m low. Recent momentum — watch these for continuation.</p>
     {_stock_table(breakout)}
   </div>
 
   <div style="text-align:center;padding:24px;color:#bbb;font-size:12px">
-    farrer36.com &bull; Weekly Stock Screen &bull; End-of-day data via Financial Modeling Prep
+    farrer36.com &bull; Weekly Stock Screen &bull; Prices: EODHD &bull; Sectors: Finnhub
   </div>
 
 </div>
@@ -183,16 +200,17 @@ def _build_html(clusters, strong, recovery, breakout, run_date):
 
 # ── PLAIN TEXT ───────────────────────────────────────────────────────────────
 
-def _build_plain(clusters, strong, recovery, breakout, run_date):
+def _build_plain(clusters, strong, recovery, breakout, run_date, total_stocks):
     lines = [
         f"WEEKLY STOCK SCREEN — {run_date}",
         "=" * 60,
-        f"Total: {len(strong) + len(recovery) + len(breakout)} stocks, {len(clusters)} clusters",
+        f"Total: {total_stocks} qualifying stocks across {len(clusters)} clusters",
+        f"Showing up to {STOCK_CAP} per category, sorted freshest-first",
         "",
         "SIGNALS",
-        "  Strong   = 30%+ above 52w low AND 3m low (highest conviction)",
-        "  Recovery = 30%+ above 52w low (deep value recovering)",
-        "  Breakout = 30%+ above 3m low  (recent momentum)",
+        "  Strong   = 30-100% above 52w low AND 3m low (highest conviction)",
+        "  Recovery = 30-100% above 52w low (deep value recovering)",
+        "  Breakout = 30-100% above 3m low  (recent momentum)",
         "",
         "TOP CLUSTERS",
         "-" * 60,
@@ -208,15 +226,16 @@ def _build_plain(clusters, strong, recovery, breakout, run_date):
 
     for label, group in [("STRONG SIGNALS", strong), ("RECOVERY SIGNALS", recovery), ("BREAKOUT SIGNALS", breakout)]:
         lines += ["", label, "-" * 60,
-                  f"{'Symbol':<10} {'Name':<30} {'Ctry':<6} {'vs52w':>7} {'vs3m':>7} {'Vol%':>6}",
+                  f"{'Symbol':<10} {'Name':<28} {'Ctry':<6} {'Sector':<18} {'vs52w':>7} {'vs3m':>7} {'Vol%':>6}",
                   "-" * 60]
         for s in group:
+            sector_short = (s.get("sector") or "")[:17]
             lines.append(
-                f"{s['symbol']:<10} {s['name'][:29]:<30} {s['country']:<6} "
-                f"+{s['pct_above_52w']:>5}% +{s['pct_above_3m']:>5}% {s['vol_ratio']:>5.0%}{s['vol_flag']}"
+                f"{s['symbol']:<10} {s['name'][:27]:<28} {s['country']:<6} "
+                f"{sector_short:<18} +{s['pct_above_52w']:>5}% +{s['pct_above_3m']:>5}% {s['vol_ratio']:>5.0%}{s['vol_flag']}"
             )
         if not group:
             lines.append("  None this week.")
 
-    lines += ["", "-" * 60, "farrer36.com | Weekly Stock Screen | Data: Financial Modeling Prep"]
+    lines += ["", "-" * 60, "farrer36.com | Weekly Stock Screen | Prices: EODHD | Sectors: Finnhub"]
     return "\n".join(lines)
