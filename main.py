@@ -148,6 +148,9 @@ async def admin_page():
         <button onclick="sendDigest()" style="width:100%;padding:14px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
           Send Digest Now
         </button>
+        <button onclick="runScreener()" style="width:100%;padding:14px;background:#1a7f37;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
+          Run Stock Screener Now
+        </button>
         <p id="status" style="color:#666;font-size:13px;min-height:20px"></p>
       </div>
     </div>
@@ -209,6 +212,10 @@ async def admin_page():
       document.getElementById("status").textContent = data.status === "digest sent"
         ? "Done! Check your inbox."
         : "No articles found for this week yet.";
+    }}
+    async function runScreener() {{
+      document.getElementById("status").textContent = "Screener started — email will arrive in ~15-20 minutes...";
+      await fetch("/screener/send", {{method: "POST"}});
     }}
   </script>
 </body></html>""")
