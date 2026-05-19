@@ -1,5 +1,5 @@
 import time
-from .fmp import fetch_universe, fetch_history, fetch_sector
+from .fmp import fetch_universe, fetch_bulk_prices, fetch_history, fetch_sector
 from database import get_cached_sector, save_sector_cache
 
 PCT_MIN = 30.0          # % above low to qualify
@@ -16,14 +16,49 @@ def run_screen():
     """
     Main entry point. Returns (stocks, clusters).
 
+    Two-pass approach:
+      Pass 1 — bulk latest prices (1 API call per exchange, 15 total)
+               → drop anything below MIN_PRICE or MIN_AVG_VOLUME
+      Pass 2 — full 370-day history only for candidates that survived pass 1
+               → momentum checks, signal classification
+
     stocks   — list of dicts, one per qualifying stock
     clusters — list of dicts grouped by (sector, country), sorted by total desc
     """
     universe = fetch_universe()
-    print(f"SCREENER: universe size = {len(universe)} stocks across all exchanges")
-    results = []
+    print(f"SCREENER: universe = {len(universe)} stocks across all exchanges")
 
-    for i, stock in enumerate(universe):
+    # ── Pass 1: bulk pre-filter ──────────────────────────────────────────────
+    by_exchange = {}
+    for s in universe:
+        by_exchange.setdefault(s["exchange"], []).append(s)
+
+    candidates = []
+    for exchange, stocks in by_exchange.items():
+        bulk = fetch_bulk_prices(exchange)
+        if bulk:
+            kept = []
+            for s in stocks:
+                bp = bulk.get(s["ticker"])
+                if bp is None:
+                    continue  # not in bulk data → no recent trading activity
+                if bp["close"] < MIN_PRICE:
+                    continue
+                if bp["volume"] < MIN_AVG_VOLUME:
+                    continue
+                kept.append(s)
+            print(f"SCREENER: {exchange} — {len(stocks)} tickers → {len(kept)} after bulk pre-filter")
+            candidates.extend(kept)
+        else:
+            # Bulk endpoint unavailable for this exchange — include all and filter later
+            print(f"SCREENER: {exchange} — bulk fetch failed, including all {len(stocks)}")
+            candidates.extend(stocks)
+
+    print(f"SCREENER: {len(candidates)} candidates remain, fetching full history...")
+
+    # ── Pass 2: full history + momentum checks ───────────────────────────────
+    results = []
+    for i, stock in enumerate(candidates):
         ticker = stock["ticker"]
         exchange = stock["exchange"]
 
@@ -43,7 +78,6 @@ def run_screen():
         if year_low <= 0:
             continue
 
-        # Quick pre-filter — saves Finnhub quota and time
         if price < year_low * 1.30:
             continue
 
@@ -99,15 +133,12 @@ def run_screen():
             "signal": signal,
         })
 
-        if (i + 1) % 1000 == 0:
-            print(f"SCREENER: {i+1}/{len(universe)} scanned, {len(results)} qualifying so far")
-            time.sleep(2)
-        elif (i + 1) % 200 == 0:
-            time.sleep(2)
-        else:
-            time.sleep(0.1)
+        if (i + 1) % 500 == 0:
+            print(f"SCREENER: {i+1}/{len(candidates)} history checks done, {len(results)} qualifying")
 
-    print(f"SCREENER: scan complete — {len(results)} stocks qualify, starting sector enrichment")
+        time.sleep(0.1)
+
+    print(f"SCREENER: scan complete — {len(results)} qualifying stocks, enriching sectors...")
     _enrich_sectors(results)
     clusters = _build_clusters(results)
     return results, clusters
@@ -115,6 +146,7 @@ def run_screen():
 
 def _enrich_sectors(stocks):
     """Add sector/industry to each stock dict, using DB cache then Finnhub."""
+    uncached = 0
     for s in stocks:
         cached = get_cached_sector(s["symbol"], s["exchange"])
         if cached is not None:
@@ -125,7 +157,10 @@ def _enrich_sectors(stocks):
         save_sector_cache(s["symbol"], s["exchange"], sector, industry)
         s["sector"] = sector
         s["industry"] = industry
+        uncached += 1
         time.sleep(FINNHUB_SLEEP)
+
+    print(f"SCREENER: sector enrichment done ({uncached} new Finnhub lookups)")
 
 
 def _build_clusters(stocks):

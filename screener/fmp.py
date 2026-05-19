@@ -85,6 +85,28 @@ def fetch_universe():
     return all_stocks
 
 
+def fetch_bulk_prices(exchange):
+    """
+    Fetch latest close + volume for every stock on an exchange in one API call.
+    Returns dict: ticker -> {"close": float, "volume": int}
+    Returns empty dict if the endpoint is unavailable.
+    """
+    try:
+        data = _get(f"/eod/bulk_last_day/{exchange}")
+        if not isinstance(data, list):
+            return {}
+        return {
+            item["code"]: {
+                "close": float(item.get("close") or item.get("adjusted_close") or 0),
+                "volume": int(item.get("volume") or 0),
+            }
+            for item in data
+            if item.get("code")
+        }
+    except Exception:
+        return {}
+
+
 def fetch_history(ticker, exchange, days=370):
     from_date = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
     try:

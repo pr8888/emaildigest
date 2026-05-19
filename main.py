@@ -316,41 +316,29 @@ async def debug_screener():
 
 @app.get("/screener/test-eodhd")
 async def test_eodhd():
-    """Diagnostic: tests EODHD API key, symbol list, and historical price endpoint."""
+    """Diagnostic: tests EODHD API key, symbol list, bulk prices, and history."""
     import requests
     key = os.environ.get("EODHD_API_KEY", "NOT SET")
     if key == "NOT SET":
         return {"error": "EODHD_API_KEY not set"}
     try:
-        symbol_list = requests.get(
-            "https://eodhd.com/api/exchange-symbol-list/US",
-            params={"api_token": key, "fmt": "json"},
-            timeout=15,
-        )
         history = requests.get(
             "https://eodhd.com/api/eod/AAPL.US",
             params={"api_token": key, "fmt": "json", "from": "2026-05-01"},
             timeout=15,
         )
-        fundamentals = requests.get(
-            "https://eodhd.com/api/fundamentals/AAPL.US",
-            params={"api_token": key, "fmt": "json", "filter": "General"},
-            timeout=15,
+        bulk = requests.get(
+            "https://eodhd.com/api/eod/bulk_last_day/US",
+            params={"api_token": key, "fmt": "json"},
+            timeout=30,
         )
-        symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
-        # Test bulk fundamentals endpoint
-        bulk_fund = requests.get(
-            "https://eodhd.com/api/bulk-fundamental-data/US",
-            params={"api_token": key, "fmt": "json", "limit": 3, "offset": 0},
-            timeout=20,
-        )
-
-        symbol_data = symbol_list.json() if symbol_list.ok else symbol_list.text[:200]
+        bulk_data = bulk.json() if bulk.ok else None
+        bulk_sample = bulk_data[:3] if isinstance(bulk_data, list) else bulk.text[:300]
         return {
-            "symbol_list_status": symbol_list.status_code,
             "history_status": history.status_code,
-            "bulk_fundamentals_status": bulk_fund.status_code,
-            "bulk_fundamentals_sample": bulk_fund.text[:600],
+            "bulk_eod_status": bulk.status_code,
+            "bulk_eod_count": len(bulk_data) if isinstance(bulk_data, list) else 0,
+            "bulk_eod_sample": bulk_sample,
         }
     except Exception as e:
         return {"error": str(e)}
