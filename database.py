@@ -5,7 +5,13 @@ import os
 
 
 
-engine = create_engine(os.environ["DATABASE_URL"])
+engine = create_engine(
+    os.environ["DATABASE_URL"],
+    pool_size=3,
+    max_overflow=2,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
