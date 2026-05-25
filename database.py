@@ -98,10 +98,21 @@ class SectorCache(Base):
 
 
 def init_db():
-    Base.metadata.create_all(engine)
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_paywalled BOOLEAN DEFAULT FALSE"))
-        conn.commit()
+    import time
+    for attempt in range(10):
+        try:
+            Base.metadata.create_all(engine)
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_paywalled BOOLEAN DEFAULT FALSE"))
+                conn.commit()
+            return
+        except Exception as e:
+            if attempt < 9:
+                wait = min(2 ** attempt, 30)
+                print(f"DB not ready (attempt {attempt + 1}/10), retrying in {wait}s: {e}")
+                time.sleep(wait)
+            else:
+                raise
 
 
 def get_cached_sector(ticker, exchange):
