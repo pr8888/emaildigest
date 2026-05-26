@@ -145,6 +145,7 @@ async def admin_page():
 
       <div id="panel" style="display:none">
         <div id="count" style="background:#f0f3fa;border-radius:8px;padding:16px;margin-bottom:16px;font-size:14px;color:#333">Loading...</div>
+        <div id="screener-status" style="background:#f0f3fa;border-radius:8px;padding:16px;margin-bottom:16px;font-size:14px;color:#333">Loading screener status...</div>
         <button onclick="sendDigest()" style="width:100%;padding:14px;background:#3a5bd9;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-bottom:12px">
           Send Digest Now
         </button>
@@ -168,6 +169,7 @@ async def admin_page():
         document.getElementById("auth").style.display = "none";
         document.getElementById("panel").style.display = "block";
         loadCount();
+        loadScreenerStatus();
         loadArticles();
       }} else {{
         alert("Wrong password");
@@ -177,6 +179,20 @@ async def admin_page():
       const res = await fetch("/article-count");
       const data = await res.json();
       document.getElementById("count").innerHTML = `<strong>${{data.this_week}}</strong> articles queued for this Saturday &bull; <strong>${{data.total}}</strong> total all time`;
+    }}
+    async function loadScreenerStatus() {{
+      const res = await fetch("/screener/last-run");
+      const data = await res.json();
+      if (!data.run_at) {{
+        document.getElementById("screener-status").innerHTML = `<strong>Screener:</strong> No completed run on record`;
+        return;
+      }}
+      const d = new Date(data.run_at);
+      const dateStr = d.toLocaleDateString("en-SG", {{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Singapore"}});
+      const daysSince = Math.floor((Date.now() - d.getTime()) / 86400000);
+      const freshness = daysSince === 0 ? "today" : daysSince === 1 ? "yesterday" : `${{daysSince}} days ago`;
+      document.getElementById("screener-status").innerHTML =
+        `<strong>Last screener run:</strong> ${{dateStr}} SGT (${{freshness}}) &bull; <strong>${{data.stock_count}}</strong> stocks found`;
     }}
     async function loadArticles() {{
       const res = await fetch("/queued-articles");
@@ -268,6 +284,22 @@ async def trigger_screener(background_tasks: BackgroundTasks):
     """Manual trigger for the weekly stock screener."""
     background_tasks.add_task(run_weekly_screener)
     return {"status": "screener started — email will arrive in ~10-15 minutes"}
+
+
+@app.get("/screener/last-run")
+async def screener_last_run():
+    """Returns details of the most recent completed screener run."""
+    from database import SessionLocal
+    from database import ScreenerRun
+    with SessionLocal() as session:
+        run = session.query(ScreenerRun).order_by(ScreenerRun.run_at.desc()).first()
+        if not run:
+            return {"run_at": None, "stock_count": 0, "cluster_count": 0}
+        return {
+            "run_at": run.run_at.isoformat() + "Z",
+            "stock_count": run.stock_count,
+            "cluster_count": run.cluster_count,
+        }
 
 
 @app.get("/screener/debug")
