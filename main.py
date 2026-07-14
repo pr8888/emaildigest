@@ -30,10 +30,11 @@ async def lifespan(app: FastAPI):
         CronTrigger(day_of_week="sat", hour=0, minute=0, timezone="UTC"),
     )
     # Sunday 00:00 UTC = Sunday 8:00 AM SGT
-    scheduler.add_job(
-        run_weekly_screener,
-        CronTrigger(day_of_week="sun", hour=0, minute=0, timezone="UTC"),
-    )
+    # Paused 2026-07-14 while EODHD subscription is on hold — uncomment to resume.
+    # scheduler.add_job(
+    #     run_weekly_screener,
+    #     CronTrigger(day_of_week="sun", hour=0, minute=0, timezone="UTC"),
+    # )
     scheduler.start()
     yield
     scheduler.shutdown()
