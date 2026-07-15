@@ -345,7 +345,13 @@ async def debug_jobs():
             "Authorization": f"Bearer {os.environ['BRIGHTDATA_API_KEY']}",
             "Content-Type": "application/json",
         }
-        params = {"dataset_id": DATASET_ID, "notify": "false", "include_errors": "true"}
+        params = {
+            "dataset_id": DATASET_ID,
+            "notify": "false",
+            "include_errors": "true",
+            "type": "discover_new",
+            "discover_by": "keyword",
+        }
         resp = requests.post(API_URL, headers=headers, params=params, json=payload, timeout=120)
         return {
             "has_key": True,

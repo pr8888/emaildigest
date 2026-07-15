@@ -2,7 +2,7 @@ import os
 import requests
 
 API_URL = "https://api.brightdata.com/datasets/v3/scrape"
-DATASET_ID = "gd_lpfll7v5hcqtkxl61"  # LinkedIn job listings — discover by keyword
+DATASET_ID = "gd_lpfll7v5hcqtkxl6l"  # LinkedIn job listings — discover by keyword
 
 EXPERIENCE_LEVELS = ["Mid-Senior level", "Director", "Executive"]
 
@@ -33,7 +33,13 @@ def fetch_jobs(record_limit=100):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    params = {"dataset_id": DATASET_ID, "notify": "false", "include_errors": "true"}
+    params = {
+        "dataset_id": DATASET_ID,
+        "notify": "false",
+        "include_errors": "true",
+        "type": "discover_new",
+        "discover_by": "keyword",
+    }
 
     resp = requests.post(API_URL, headers=headers, params=params, json=payload, timeout=900)
     resp.raise_for_status()
