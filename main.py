@@ -327,7 +327,7 @@ def run_weekly_jobs():
 
 @app.get("/jobs/debug")
 async def debug_jobs():
-    """Diagnostic: runs the full trigger -> poll -> download flow with a tiny limit."""
+    """Diagnostic: runs the full trigger (-> poll -> download if needed) with a tiny limit."""
     import traceback
     from jobs.brightdata import trigger_scrape, wait_for_snapshot, download_snapshot
 
@@ -335,12 +335,15 @@ async def debug_jobs():
         return {"has_key": False, "error": "BRIGHTDATA_API_KEY is not set in this environment"}
 
     try:
-        snapshot_id = trigger_scrape(record_limit=3)
-        wait_for_snapshot(snapshot_id)
-        data = download_snapshot(snapshot_id)
+        kind, value = trigger_scrape(record_limit=3)
+        if kind == "data":
+            data = value
+        else:
+            wait_for_snapshot(value)
+            data = download_snapshot(value)
         return {
             "has_key": True,
-            "snapshot_id": snapshot_id,
+            "kind": kind,
             "record_count": len(data),
             "sample": data[:2],
         }

@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 
 BASE_URL = "https://api.brightdata.com/datasets/v3"
@@ -27,8 +28,23 @@ def _headers():
     }
 
 
+def _parse_ndjson(text):
+    records = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if line:
+            records.append(json.loads(line))
+    return records
+
+
 def trigger_scrape(record_limit=100):
-    """Kicks off a keyword-discovery scrape, one row per experience level. Returns snapshot_id."""
+    """
+    Kicks off a keyword-discovery scrape, one row per experience level.
+
+    Bright Data sometimes finishes fast enough to return the actual results
+    inline (as newline-delimited JSON), and sometimes returns a snapshot_id
+    to poll instead. Returns either ("data", [records]) or ("snapshot", id).
+    """
     payload = {
         "input": [
             {**BASE_INPUT, "experience_level": level} for level in EXPERIENCE_LEVELS
@@ -44,7 +60,17 @@ def trigger_scrape(record_limit=100):
     }
     resp = requests.post(f"{BASE_URL}/scrape", headers=_headers(), params=params, json=payload, timeout=60)
     resp.raise_for_status()
-    return resp.json()["snapshot_id"]
+
+    try:
+        parsed = resp.json()
+    except json.JSONDecodeError:
+        return ("data", _parse_ndjson(resp.text))
+
+    if isinstance(parsed, list):
+        return ("data", parsed)
+    if isinstance(parsed, dict) and "snapshot_id" in parsed:
+        return ("snapshot", parsed["snapshot_id"])
+    raise RuntimeError(f"Unexpected Bright Data response shape: {resp.text[:500]}")
 
 
 def wait_for_snapshot(snapshot_id):
@@ -74,7 +100,9 @@ def download_snapshot(snapshot_id):
 
 
 def fetch_jobs(record_limit=100):
-    """Triggers a scrape, waits for it to complete, and returns the raw result list."""
-    snapshot_id = trigger_scrape(record_limit=record_limit)
-    wait_for_snapshot(snapshot_id)
-    return download_snapshot(snapshot_id)
+    """Triggers a scrape and returns the raw result list, polling a snapshot if needed."""
+    kind, value = trigger_scrape(record_limit=record_limit)
+    if kind == "data":
+        return value
+    wait_for_snapshot(value)
+    return download_snapshot(value)
