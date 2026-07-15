@@ -35,6 +35,11 @@ async def lifespan(app: FastAPI):
     #     run_weekly_screener,
     #     CronTrigger(day_of_week="sun", hour=0, minute=0, timezone="UTC"),
     # )
+    # Tuesday 00:00 UTC = Tuesday 8:00 AM SGT
+    scheduler.add_job(
+        run_weekly_jobs,
+        CronTrigger(day_of_week="tue", hour=0, minute=0, timezone="UTC"),
+    )
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -301,6 +306,30 @@ async def screener_last_run():
             "stock_count": run.stock_count,
             "cluster_count": run.cluster_count,
         }
+
+
+# ── Investment Jobs ──────────────────────────────────────────────────────────
+
+def run_weekly_jobs():
+    import traceback
+    try:
+        from jobs.logic import run_job_search
+        from jobs.report import build_jobs_email
+
+        jobs = run_job_search()
+        html, plain = build_jobs_email(jobs)
+        week_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+        send_digest_email(html, plain, subject=f"Weekly Investment Jobs — {week_str}")
+        print(f"JOBS: done — {len(jobs)} roles, email sent")
+    except Exception:
+        print("JOBS ERROR:\n" + traceback.format_exc())
+
+
+@app.post("/jobs/send")
+async def trigger_jobs(background_tasks: BackgroundTasks):
+    """Manual trigger for the weekly investment jobs search."""
+    background_tasks.add_task(run_weekly_jobs)
+    return {"status": "job search started — email will arrive in ~5-10 minutes"}
 
 
 @app.get("/screener/debug")
