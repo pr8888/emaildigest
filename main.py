@@ -327,36 +327,22 @@ def run_weekly_jobs():
 
 @app.get("/jobs/debug")
 async def debug_jobs():
-    """Diagnostic: shows the raw Bright Data response/error without sending an email."""
+    """Diagnostic: runs the full trigger -> poll -> download flow with a tiny limit."""
     import traceback
-    import requests
-    from jobs.brightdata import API_URL, DATASET_ID, EXPERIENCE_LEVELS, BASE_INPUT
+    from jobs.brightdata import trigger_scrape, wait_for_snapshot, download_snapshot
 
-    has_key = bool(os.environ.get("BRIGHTDATA_API_KEY"))
-    if not has_key:
+    if not os.environ.get("BRIGHTDATA_API_KEY"):
         return {"has_key": False, "error": "BRIGHTDATA_API_KEY is not set in this environment"}
 
     try:
-        payload = {
-            "input": [{**BASE_INPUT, "experience_level": EXPERIENCE_LEVELS[0]}],
-            "limit_per_input": 5,
-        }
-        headers = {
-            "Authorization": f"Bearer {os.environ['BRIGHTDATA_API_KEY']}",
-            "Content-Type": "application/json",
-        }
-        params = {
-            "dataset_id": DATASET_ID,
-            "notify": "false",
-            "include_errors": "true",
-            "type": "discover_new",
-            "discover_by": "keyword",
-        }
-        resp = requests.post(API_URL, headers=headers, params=params, json=payload, timeout=120)
+        snapshot_id = trigger_scrape(record_limit=3)
+        wait_for_snapshot(snapshot_id)
+        data = download_snapshot(snapshot_id)
         return {
             "has_key": True,
-            "status_code": resp.status_code,
-            "response_body": resp.text[:3000],
+            "snapshot_id": snapshot_id,
+            "record_count": len(data),
+            "sample": data[:2],
         }
     except Exception:
         return {"has_key": True, "error": traceback.format_exc()}
