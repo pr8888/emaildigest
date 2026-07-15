@@ -325,6 +325,37 @@ def run_weekly_jobs():
         print("JOBS ERROR:\n" + traceback.format_exc())
 
 
+@app.get("/jobs/debug")
+async def debug_jobs():
+    """Diagnostic: shows the raw Bright Data response/error without sending an email."""
+    import traceback
+    import requests
+    from jobs.brightdata import API_URL, DATASET_ID, EXPERIENCE_LEVELS, BASE_INPUT
+
+    has_key = bool(os.environ.get("BRIGHTDATA_API_KEY"))
+    if not has_key:
+        return {"has_key": False, "error": "BRIGHTDATA_API_KEY is not set in this environment"}
+
+    try:
+        payload = {
+            "input": [{**BASE_INPUT, "experience_level": EXPERIENCE_LEVELS[0]}],
+            "limit_per_input": 5,
+        }
+        headers = {
+            "Authorization": f"Bearer {os.environ['BRIGHTDATA_API_KEY']}",
+            "Content-Type": "application/json",
+        }
+        params = {"dataset_id": DATASET_ID, "notify": "false", "include_errors": "true"}
+        resp = requests.post(API_URL, headers=headers, params=params, json=payload, timeout=120)
+        return {
+            "has_key": True,
+            "status_code": resp.status_code,
+            "response_body": resp.text[:3000],
+        }
+    except Exception:
+        return {"has_key": True, "error": traceback.format_exc()}
+
+
 @app.post("/jobs/send")
 async def trigger_jobs(background_tasks: BackgroundTasks):
     """Manual trigger for the weekly investment jobs search."""
