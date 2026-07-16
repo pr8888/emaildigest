@@ -351,6 +351,37 @@ async def debug_jobs():
         return {"has_key": True, "error": traceback.format_exc()}
 
 
+@app.get("/jobs/debug-full")
+async def debug_jobs_full():
+    """Diagnostic: runs the REAL production pipeline synchronously (fetch, filter, build email,
+    attempt SendGrid send) and reports exactly where it succeeds or fails, instead of the
+    fire-and-forget background task /jobs/send uses."""
+    import traceback
+
+    result = {"stage": "start"}
+    try:
+        from jobs.logic import run_job_search
+        result["stage"] = "fetching + filtering (this can take several minutes)"
+        jobs = run_job_search()
+        result["stage"] = "filtered"
+        result["job_count"] = len(jobs)
+
+        from jobs.report import build_jobs_email
+        result["stage"] = "building email"
+        html, plain = build_jobs_email(jobs)
+        result["html_length"] = len(html)
+
+        result["stage"] = "sending via SendGrid"
+        week_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+        send_digest_email(html, plain, subject=f"Weekly Investment Jobs — {week_str}")
+        result["stage"] = "done"
+        result["sent"] = True
+        return result
+    except Exception:
+        result["error"] = traceback.format_exc()
+        return result
+
+
 @app.post("/jobs/send")
 async def trigger_jobs(background_tasks: BackgroundTasks):
     """Manual trigger for the weekly investment jobs search."""
