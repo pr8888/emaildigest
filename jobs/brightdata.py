@@ -58,7 +58,7 @@ def trigger_scrape(record_limit=100):
         "type": "discover_new",
         "discover_by": "keyword",
     }
-    resp = requests.post(f"{BASE_URL}/scrape", headers=_headers(), params=params, json=payload, timeout=60)
+    resp = requests.post(f"{BASE_URL}/scrape", headers=_headers(), params=params, json=payload, timeout=180)
     resp.raise_for_status()
 
     try:
