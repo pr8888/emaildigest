@@ -35,10 +35,10 @@ async def lifespan(app: FastAPI):
     #     run_weekly_screener,
     #     CronTrigger(day_of_week="sun", hour=0, minute=0, timezone="UTC"),
     # )
-    # Tuesday 00:00 UTC = Tuesday 8:00 AM SGT
+    # Monday 20:30 UTC = Tuesday 4:30 AM SGT
     scheduler.add_job(
         run_weekly_jobs,
-        CronTrigger(day_of_week="tue", hour=0, minute=0, timezone="UTC"),
+        CronTrigger(day_of_week="mon", hour=20, minute=30, timezone="UTC"),
     )
     scheduler.start()
     yield
