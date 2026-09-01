@@ -1,5 +1,6 @@
 import re
 from .brightdata import fetch_jobs
+from claude import summarize_jobs
 
 JUNIOR_TITLE_RE = re.compile(
     r"\b(intern|internship|trainee|graduate\b|entry.level|off.cycle|campus (hire|recruitment)|"
@@ -139,8 +140,14 @@ def run_job_search(record_limit=100):
             "job_location": d.get("job_location", ""),
             "url": d.get("url", "#"),
             "job_posted_date": d.get("job_posted_date", ""),
+            "job_summary": summary,
             "description_html": _extract_description(d),
         })
 
     kept.sort(key=lambda x: x["score"], reverse=True)
+
+    one_liners = summarize_jobs(kept)
+    for job, one_liner in zip(kept, one_liners):
+        job["one_liner"] = one_liner
+
     return kept

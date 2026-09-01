@@ -59,6 +59,50 @@ is_paywalled — set true if the content appears truncated: hits a paywall mid-a
     return result["summary"], result["tags"], result["must_read_score"], result.get("is_paywalled", False)
 
 
+def summarize_jobs(jobs: list) -> list:
+    """Takes a list of job dicts (each with job_title, company_name, job_summary) and
+    returns a same-length, same-order list of one-line plain-English descriptions of
+    what each role actually is. Falls back to a naive truncation per job on any error."""
+    if not jobs:
+        return []
+
+    listing = ""
+    for i, j in enumerate(jobs):
+        summary = (j.get("job_summary") or "")[:600]
+        listing += f"\n[{i+1}] Title: {j.get('job_title', '')}\nCompany: {j.get('company_name', '')}\nDescription: {summary}\n"
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            messages=[{
+                "role": "user",
+                "content": f"""For each job listing below, write ONE short, plain-English sentence (under 14 words) describing what the role actually involves day to day — not a restatement of the job title or company name, and no fluff like "exciting opportunity."
+
+{listing}
+
+Respond with JSON only: a list of {len(jobs)} strings, in the same order as the listings, e.g. ["Manages a long-short equity portfolio focused on Asian consumer names.", ...]"""
+            }]
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw.strip())
+        if isinstance(result, list) and len(result) == len(jobs):
+            return result
+    except Exception:
+        pass
+
+    # Fallback: naive truncation of the raw summary
+    fallback = []
+    for j in jobs:
+        summary = (j.get("job_summary") or "").strip().replace("\n", " ")
+        fallback.append((summary[:90] + "...") if len(summary) > 90 else summary)
+    return fallback
+
+
 def compose_digest(articles, feedback_history, digest_id: int, app_url: str, is_priority_sender=None) -> tuple:
     """Returns (html, plain_text) for the weekly digest email."""
     # Full articles first (sorted by score), paywalled articles after (sorted by score)
