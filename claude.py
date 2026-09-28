@@ -143,7 +143,7 @@ def compose_digest(articles, feedback_history, digest_id: int, app_url: str, is_
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4000,
+        max_tokens=8000,
         messages=[{
             "role": "user",
             "content": f"""Write a weekly investing digest for Pratyush Rastogi, a bottom-up fundamental equity investor based in Singapore. {feedback_note}
