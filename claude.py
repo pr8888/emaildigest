@@ -166,6 +166,10 @@ Adapt the format to however many articles are available:
 
 Important: whenever you mention an article, include the source/author name in parentheses — e.g. "The Scoreboard and the Supercycle (Citrini Research)". Use the Source field for each article.
 
+Formatting: give every article its own standalone bold heading line (the title, with source in parentheses), followed by the commentary as a separate paragraph below it. Do not fold the title into the start of the paragraph as an inline bolded lead-in — it must be its own line, e.g.:
+**The Scoreboard and the Supercycle (Citrini Research)**
+Citrini's piece argues that...
+
 Always write something useful — never refuse or ask for more articles.
 
 Tone: smart analyst friend, not a robot. No bullet points — prose only. Total reading time should be 10-12 minutes."""
