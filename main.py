@@ -322,7 +322,29 @@ def run_weekly_jobs():
         send_digest_email(html, plain, subject=f"Weekly Investment Jobs — {week_str}")
         print(f"JOBS: done — {len(jobs)} roles, email sent")
     except Exception:
-        print("JOBS ERROR:\n" + traceback.format_exc())
+        tb = traceback.format_exc()
+        print("JOBS ERROR:\n" + tb)
+        _send_failure_alert("Weekly Investment Jobs", tb)
+
+
+def _send_failure_alert(job_name: str, tb: str):
+    """Email a short heads-up when a scheduled run fails, so it isn't silent."""
+    import html as html_lib
+    try:
+        date_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+        last_line = tb.strip().splitlines()[-1]
+        plain = (
+            f"The {job_name} run failed on {date_str}, so no email was sent.\n\n"
+            f"Error: {last_line}\n\nFull details:\n{tb}"
+        )
+        html = (
+            f"<p>The <b>{job_name}</b> run failed on {date_str}, so no email was sent.</p>"
+            f"<p><b>Error:</b> {html_lib.escape(last_line)}</p>"
+            f"<pre style='font-size:12px;white-space:pre-wrap'>{html_lib.escape(tb)}</pre>"
+        )
+        send_digest_email(html, plain, subject=f"⚠️ {job_name} failed — {date_str}")
+    except Exception:
+        print("ALERT ERROR: could not send failure alert")
 
 
 @app.get("/jobs/debug")
