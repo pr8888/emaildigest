@@ -12,6 +12,10 @@ FINANCE_INDUSTRY_RE = re.compile(
     r"\bcapital markets\b|\bfunds and trusts\b", re.I
 )
 
+# Recruiter-posted roles (e.g. anonymous family office searches) carry the agency's
+# industry, not finance — keep them only if the role itself reads as investment-related
+RECRUITER_INDUSTRY_RE = re.compile(r"\bstaffing and recruiting\b", re.I)
+
 PE_VC_RE = re.compile(
     r"\bprivate equity\b|\bventure capital\b|\bv\.?c\.? fund\b|\bbuyout\b|\bgrowth equity\b",
     re.I
@@ -74,7 +78,8 @@ def run_job_search(record_limit=100):
     """
     Fetches raw LinkedIn job listings from Bright Data and applies the full
     filter stack: dedupe, junior titles, PE/VC, real estate, non-finance
-    industries, <8yrs-stated experience, banks/private banks, pod shops,
+    industries (recruiter postings kept if the role is investment-related),
+    <8yrs-stated experience, banks/private banks, pod shops,
     non-English language requirements. Returns a list of kept job dicts
     (each with a relevance "score" and extracted "description_html"),
     sorted highest score first.
@@ -107,7 +112,12 @@ def run_job_search(record_limit=100):
         if REAL_ESTATE_RE.search(haystack):
             continue
         if not FINANCE_INDUSTRY_RE.search(industries):
-            continue
+            role_text = f"{title} {summary}"
+            is_finance_recruiter_role = RECRUITER_INDUSTRY_RE.search(industries) and (
+                FAMILY_OFFICE_RE.search(role_text) or PUBLIC_MARKET_RE.search(role_text)
+            )
+            if not is_finance_recruiter_role:
+                continue
 
         year_nums = []
         for m in YEARS_RE.finditer(summary):
