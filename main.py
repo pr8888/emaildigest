@@ -10,7 +10,8 @@ import os
 load_dotenv()
 
 from database import (
-    init_db, save_article, get_weekly_articles, save_digest, save_feedback,
+    init_db, save_article, get_weekly_articles, save_digest, delete_digest, save_feedback,
+    update_article_summary,
     get_feedback_history, get_article_count, get_queued_articles,
     save_screener_run, save_screener_stocks, save_screener_clusters, get_latest_screener_results,
 )
@@ -67,12 +68,22 @@ def _is_priority_sender(sender: str) -> bool:
     return any(p.strip().lower() in sender_lower for p in priority_list.split(",") if p.strip())
 
 
-def process_article(article: dict):
-    summary, tags, must_read_score, is_paywalled = summarize_article(article["text"], article["subject"])
+def _summarize(text: str, subject: str, sender: str) -> tuple:
+    summary, tags, must_read_score, is_paywalled = summarize_article(text, subject)
 
     # Priority senders always score at least 0.85
-    if _is_priority_sender(article["sender"]):
+    if _is_priority_sender(sender):
         must_read_score = max(must_read_score, 0.85)
+    return summary, tags, must_read_score, is_paywalled
+
+
+def process_article(article: dict):
+    try:
+        summary, tags, must_read_score, is_paywalled = _summarize(article["text"], article["subject"], article["sender"])
+    except Exception as e:
+        # Save it unsummarised rather than lose it — run_weekly_digest retries the summary
+        print(f"SUMMARY ERROR for '{article['subject']}': {e!r}")
+        summary, tags, must_read_score, is_paywalled = None, [], 0.0, False
 
     save_article(
         subject=article["subject"],
@@ -86,27 +97,65 @@ def process_article(article: dict):
 
 
 @app.post("/send-digest")
-async def trigger_digest():
-    """Manual trigger — use this to test without waiting for Saturday."""
-    run_weekly_digest()
-    return {"status": "digest sent"}
+def trigger_digest():
+    """Manual trigger — use this to test without waiting for Saturday.
+    Plain def so FastAPI runs it in a thread and /health keeps answering meanwhile."""
+    status = run_weekly_digest()
+    return {"status": status}
+
+
+def _retry_missing_summaries(articles):
+    """Summarise articles that were saved while Claude was unavailable.
+    Returns only the articles that now have a summary; the rest stay queued."""
+    ready = []
+    for a in articles:
+        if a.summary is None:
+            try:
+                a.summary, a.tags, a.must_read_score, a.is_paywalled = _summarize(a.raw_content or "", a.subject, a.sender)
+                update_article_summary(a.id, a.summary, a.tags, a.must_read_score, a.is_paywalled)
+            except Exception as e:
+                print(f"SUMMARY RETRY ERROR for '{a.subject}': {e!r}")
+                continue
+        ready.append(a)
+    return ready
 
 
 def run_weekly_digest():
-    articles = get_weekly_articles()
-    if not articles:
-        return
+    import traceback
+    digest_id = None
+    try:
+        articles = get_weekly_articles()
+        if not articles:
+            return "no articles queued"
 
-    article_ids = [a.id for a in articles]
-    week_start = datetime.now(timezone.utc) - timedelta(days=7)
-    digest_id = save_digest(article_ids=article_ids, week_start=week_start)
+        unsummarised = sum(1 for a in articles if a.summary is None)
+        articles = _retry_missing_summaries(articles)
+        if not articles:
+            raise RuntimeError(f"All {unsummarised} queued articles failed to summarise")
 
-    feedback_history = get_feedback_history(weeks=8)
-    html, plain = compose_digest(articles, feedback_history, digest_id=digest_id, app_url=APP_URL, is_priority_sender=_is_priority_sender)
+        article_ids = [a.id for a in articles]
+        week_start = datetime.now(timezone.utc) - timedelta(days=7)
+        digest_id = save_digest(article_ids=article_ids, week_start=week_start)
 
-    from datetime import date
-    week_str = date.today().strftime("%b %d, %Y")
-    send_digest_email(html, plain, subject=f"Your Weekly Markets Digest — {week_str}")
+        feedback_history = get_feedback_history(weeks=8)
+        html, plain = compose_digest(articles, feedback_history, digest_id=digest_id, app_url=APP_URL, is_priority_sender=_is_priority_sender)
+
+        from datetime import date
+        week_str = date.today().strftime("%b %d, %Y")
+        send_digest_email(html, plain, subject=f"Your Weekly Markets Digest — {week_str}")
+        print(f"DIGEST: done — {len(articles)} articles, email sent")
+        return "digest sent"
+    except Exception:
+        tb = traceback.format_exc()
+        print("DIGEST ERROR:\n" + tb)
+        # Un-mark the articles so they go out next time instead of being lost
+        if digest_id is not None:
+            try:
+                delete_digest(digest_id)
+            except Exception:
+                print("DIGEST ERROR: could not undo digest record")
+        _send_failure_alert("Weekly Markets Digest", tb)
+        return "digest failed — alert emailed"
 
 
 @app.get("/feedback")

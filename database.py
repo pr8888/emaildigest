@@ -177,6 +177,23 @@ def save_digest(article_ids, week_start):
         return digest.id
 
 
+def delete_digest(digest_id):
+    """Undo a digest that failed to send, so its articles go back in the queue."""
+    with SessionLocal() as session:
+        session.query(Digest).filter(Digest.id == digest_id).delete()
+        session.commit()
+
+
+def update_article_summary(article_id, summary, tags, must_read_score, is_paywalled=False):
+    with SessionLocal() as session:
+        article = session.get(Article, article_id)
+        article.summary = summary
+        article.tags = tags
+        article.must_read_score = must_read_score
+        article.is_paywalled = is_paywalled
+        session.commit()
+
+
 def save_feedback(digest_id, type, value):
     with SessionLocal() as session:
         feedback = Feedback(digest_id=digest_id, type=type, value=value)
